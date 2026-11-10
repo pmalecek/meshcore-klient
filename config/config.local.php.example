@@ -1,0 +1,28 @@
+<?php
+// Zkopíruj jako config.local.php a doplň hodnoty. Vše ostatní má výchozí hodnotu v config.php.
+return [
+    'database' => [
+        'dsn'      => 'mysql:host=localhost;dbname=meshcore;charset=utf8mb4',
+        'user'     => 'meshcore',
+        'password' => 'ZMEN_HESLO',
+    ],
+    'ha' => [
+        'url'   => 'http://homeassistant.local:8123',
+        // Long-lived access token (HA → Profil → Zabezpečení → Dlouhodobé přístupové tokeny).
+        // Uživatel musí být administrátor HA (přidávání kanálů, execute_command).
+        'token' => 'LONG_LIVED_TOKEN',
+        // 'entry_id'   => null,   // víc companionů v HA -> omezit na jeden (entry_id integrace)
+        // 'verify_tls' => true,
+    ],
+    // 'analyzer' => [
+    //     'enabled'       => true,
+    //     'url'           => 'https://analyzer.meshcore.cz',
+    //     'node_name'     => 'MujUzel🤖',  // jméno companionu, jak ho vidí analyzer
+    //     'own_observers' => [],           // vlastní observery, které se nepočítají
+    // ],
+    // 'ble' => ['public_heard' => true],   // kontrola heard i pro /ble bez přihlášení
+    // 'app' => [
+    //     'timezone' => 'Europe/Prague',
+    //     'home'     => [50.08, 14.42],      // poloha companionu pro mapu, když ji HA nevystavuje
+    // ],
+];

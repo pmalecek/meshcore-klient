@@ -1,0 +1,329 @@
+/* MeshCore klient – doplňky k Bootstrapu */
+
+html, body { height: 100%; }
+body { overflow: hidden; }
+
+.app {
+    display: flex;
+    height: 100vh;
+    height: 100dvh;
+}
+.sidebar { width: 100%; min-width: 0; }
+.chat    { flex: 1 1 auto; min-width: 0; display: none !important; }
+.min-w-0 { min-width: 0; }
+
+/* Mobil: jedna obrazovka – buď seznam, nebo chat */
+.app.show-chat .sidebar { display: none !important; }
+.app.show-chat .chat    { display: flex !important; }
+
+/* Tablet / desktop: vedle sebe */
+@media (min-width: 768px) {
+    .sidebar { width: 320px; flex: 0 0 320px; }
+    .chat { display: flex !important; }
+    .app.show-chat .sidebar { display: flex !important; }
+}
+@media (min-width: 1200px) {
+    .sidebar { width: 380px; flex-basis: 380px; }
+}
+
+/* Stav připojení */
+.status-dot {
+    width: .7rem; height: .7rem; border-radius: 50%;
+    background: var(--bs-secondary); display: inline-block; flex: 0 0 auto;
+}
+.status-dot.ok   { background: var(--bs-success); box-shadow: 0 0 0 3px rgba(var(--bs-success-rgb), .2); }
+.status-dot.warn { background: var(--bs-warning); }
+.status-dot.err  { background: var(--bs-danger); }
+
+/* Záložky (ikona + popisek) */
+.tabs-bar { flex-wrap: nowrap; gap: .15rem; }
+.tabs-bar .nav-link {
+    position: relative; display: flex; flex-direction: column; align-items: center; gap: .05rem;
+    padding: .3rem .15rem; font-size: .72rem; line-height: 1.1; white-space: nowrap;
+}
+.tabs-bar .nav-link .bi { font-size: 1.15rem; }
+.tabs-bar .badge { position: absolute; top: .1rem; right: 50%; margin-right: -1.6rem; font-size: .6rem; }
+
+/* Seznam konverzací */
+.fav-star { color: var(--bs-warning); font-size: .8rem; }
+#btn-fav .bi-star-fill { color: var(--bs-warning); }
+#conv-list .list-group-item { cursor: pointer; border-left: 0; border-right: 0; }
+#conv-list .list-group-item.active .text-body-secondary { color: rgba(255,255,255,.75) !important; }
+.conv-preview { font-size: .85rem; }
+.conv-time { font-size: .75rem; white-space: nowrap; }
+
+.avatar {
+    width: 40px; height: 40px; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    color: #fff; font-weight: 600; font-size: .95rem; flex: 0 0 40px;
+}
+.avatar .bi { font-size: 1.15rem; }
+
+/* Zprávy */
+.messages { background-color: var(--bs-body-bg); overscroll-behavior: contain; }
+
+/* Pozadí chatu */
+:root, [data-bs-theme="light"] { --pat: rgba(0, 0, 0, .07); }
+[data-bs-theme="dark"] { --pat: rgba(255, 255, 255, .07); }
+.bg-pattern-dots     { background-image: radial-gradient(var(--pat) 1.5px, transparent 1.6px); background-size: 18px 18px; }
+.bg-pattern-grid     { background-image: linear-gradient(var(--pat) 1px, transparent 1px), linear-gradient(90deg, var(--pat) 1px, transparent 1px); background-size: 24px 24px; }
+.bg-pattern-diagonal { background-image: repeating-linear-gradient(45deg, var(--pat) 0 1px, transparent 1px 14px); }
+.bg-pattern-checks   { background-image: conic-gradient(var(--pat) 25%, transparent 0 50%, var(--pat) 0 75%, transparent 0); background-size: 28px 28px; }
+.bg-pattern-circles  { background-image: repeating-radial-gradient(circle at 0 0, transparent 0 14px, var(--pat) 14px 15px); background-size: 60px 60px; }
+.bg-image { background-size: cover; background-position: center; }
+.day-sep span { box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+
+/* Volba pozadí */
+.bg-options { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: .5rem; }
+.bg-option {
+    position: relative; height: 64px; border-radius: .5rem; cursor: pointer;
+    border: 2px solid var(--bs-border-color); background-color: var(--bs-body-bg); overflow: hidden;
+    display: flex; align-items: flex-end; justify-content: center; font-size: .7rem; padding-bottom: .15rem;
+}
+.bg-option.active { border-color: var(--bs-primary); box-shadow: 0 0 0 2px rgba(var(--bs-primary-rgb), .3); }
+.bg-option .label { background: var(--bs-body-bg); padding: 0 .3rem; border-radius: .3rem; opacity: .9; }
+.bg-option .del {
+    position: absolute; top: 2px; right: 2px; width: 20px; height: 20px; padding: 0; line-height: 1;
+    border-radius: 50%; font-size: .7rem; display: none;
+}
+.bg-option:hover .del { display: block; }
+.swatches { display: flex; flex-wrap: wrap; gap: .4rem; }
+.swatch {
+    width: 30px; height: 30px; border-radius: 50%; cursor: pointer; border: 2px solid transparent;
+    box-shadow: inset 0 0 0 1px rgba(0,0,0,.15);
+}
+.swatch.active { border-color: var(--bs-body-color); }
+.swatch-custom { width: 30px; height: 30px; padding: 0; border-radius: 50%; overflow: hidden; border: 0; }
+
+/* Zařízení */
+.dev-card { cursor: pointer; }
+.dev-dot { width: .6rem; height: .6rem; border-radius: 50%; display: inline-block; background: var(--bs-secondary); flex: 0 0 auto; }
+.dev-dot.on { background: var(--bs-success); }
+.dev-dot.off { background: var(--bs-danger); }
+.dev-stats { font-size: .75rem; display: flex; flex-wrap: wrap; gap: .15rem .7rem; }
+.dev-stats .bi { opacity: .7; }
+.dev-section { font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; font-weight: 600; color: var(--bs-secondary-color); }
+.day-sep {
+    text-align: center; margin: 1rem 0 .5rem; font-size: .75rem;
+    color: var(--bs-secondary-color);
+}
+.day-sep span { background: var(--bs-tertiary-bg); padding: .15rem .65rem; border-radius: 1rem; }
+
+.msg { display: flex; align-items: center; gap: .5rem; margin-bottom: .35rem; }
+.retry-btn {
+    width: 2rem; height: 2rem; padding: 0; flex: 0 0 2rem;
+    display: inline-flex; align-items: center; justify-content: center;
+}
+.retry-btn .bi { font-size: 1rem; }
+.msg.out { justify-content: flex-end; }
+.bubble {
+    max-width: min(85%, 560px);
+    padding: .45rem .7rem .3rem;
+    border-radius: 1rem;
+    background: var(--bs-secondary-bg);
+    word-wrap: break-word; overflow-wrap: anywhere; white-space: pre-wrap;
+    cursor: pointer;
+}
+.msg.in  .bubble { border-bottom-left-radius: .3rem; }
+.msg.out .bubble { background: var(--bs-primary); color: #fff; border-bottom-right-radius: .3rem; }
+.msg.out.failed .bubble { background: var(--bs-danger-bg-subtle); color: var(--bs-danger-text-emphasis); }
+.msg.pending .bubble { opacity: .6; }
+.bubble .sender { font-size: .8rem; font-weight: 600; margin-bottom: .1rem; white-space: normal; }
+.bubble .meta {
+    font-size: .7rem; opacity: .75; text-align: right; margin-top: .15rem;
+    white-space: nowrap; display: flex; gap: .5rem; justify-content: flex-end; align-items: center;
+}
+.msg.out .bubble .meta { color: rgba(255,255,255,.85); }
+.msg.out.failed .bubble .meta { color: inherit; }
+
+/* Psaní zprávy */
+.composer { padding-bottom: max(.5rem, env(safe-area-inset-bottom)) !important; }
+#msg-input { resize: none; max-height: 8rem; }
+#char-count.over { color: var(--bs-danger) !important; font-weight: 600; }
+
+.search-hit mark { padding: 0; }
+
+/* Duplicity */
+.dup-badge {
+    display: inline-flex; align-items: center; gap: .2rem;
+    padding: 0 .35rem; border-radius: .6rem;
+    background: rgba(var(--bs-warning-rgb), .25); color: inherit; font-weight: 600;
+}
+.msg.out .dup-badge { background: rgba(255,255,255,.25); }
+.msg.dup .bubble { opacity: .55; border: 1px dashed var(--bs-border-color); }
+.dup-label {
+    font-size: .65rem; text-transform: uppercase; letter-spacing: .03em;
+    font-weight: 600; color: var(--bs-warning-text-emphasis);
+}
+#copies-table tr.current td { background: var(--bs-primary-bg-subtle); }
+
+/* Zmínky @[nick] */
+.mention {
+    font-weight: 600; border-radius: .3rem; padding: 0 .2rem;
+    background: rgba(var(--bs-primary-rgb), .15); color: var(--bs-primary-text-emphasis);
+}
+.msg.out .mention { background: rgba(255,255,255,.25); color: #fff; }
+.bubble .sender { cursor: pointer; }
+.bubble .sender:hover { text-decoration: underline; }
+
+.mention-suggest {
+    position: absolute; bottom: 100%; left: .5rem; z-index: 1050;
+    min-width: 240px; max-width: calc(100% - 1rem);
+    max-height: 18rem; overflow-y: auto; margin-bottom: .25rem;
+}
+.mention-suggest .list-group-item { cursor: pointer; padding: .4rem .75rem; }
+.mention-menu { max-height: 18rem; overflow-y: auto; min-width: 220px; }
+/* skryté tlačítko @ nesmí rozbít zaoblení políčka */
+.composer .input-group > #btn-mention.d-none ~ #msg-input {
+    border-top-left-radius: var(--bs-border-radius);
+    border-bottom-left-radius: var(--bs-border-radius);
+}
+.mention-meta { font-size: .75rem; }
+
+/* Graf historie */
+.hist-chart { position: relative; min-height: 190px; touch-action: pan-y; }
+.hist-empty { height: 190px; display: flex; align-items: center; justify-content: center; font-size: .85rem; }
+.hist-grid line { stroke: var(--bs-border-color-translucent); stroke-width: 1; }
+.hist-axis { font-size: 10px; fill: var(--bs-secondary-color); }
+.hist-line { fill: none; stroke: var(--bs-primary); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.hist-area { fill: var(--bs-primary); fill-opacity: .1; stroke: none; }
+.hist-band { fill: var(--bs-primary); fill-opacity: .15; stroke: none; }
+.hist-dot { fill: var(--bs-primary); stroke: var(--bs-body-bg); stroke-width: 2; }
+.hist-endlabel { font-size: 11px; font-weight: 600; fill: var(--bs-body-color); }
+.hist-cross { stroke: var(--bs-secondary-color); stroke-width: 1; }
+.hist-tip {
+    position: absolute; pointer-events: none; z-index: 2; white-space: nowrap;
+    background: var(--bs-body-bg); border: 1px solid var(--bs-border-color); border-radius: .4rem;
+    padding: .25rem .5rem; font-size: .75rem; box-shadow: 0 2px 6px rgba(0,0,0,.12);
+}
+.hist-table { max-height: 220px; overflow: auto; }
+
+/* Cesta paketu */
+.hop-path { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem .3rem; }
+.hop-path.compact { font-size: .75rem; }
+.hop-path.compact + .hop-path.compact { margin-top: .2rem; }
+.hop {
+    display: inline-flex; align-items: baseline; gap: .3rem; max-width: 100%;
+    padding: .05rem .45rem; border-radius: 1rem; cursor: pointer; white-space: nowrap;
+    background: var(--bs-secondary-bg); border: 1px solid var(--bs-border-color);
+    overflow: hidden; text-overflow: ellipsis;
+}
+.hop-end { background: transparent; border-style: dashed; color: var(--bs-secondary-color); cursor: default; }
+.hop-unknown { font-family: var(--bs-font-monospace); color: var(--bs-secondary-color); }
+.hop-amb { text-decoration: underline dotted; text-underline-offset: 2px; }
+.hop sup { font-size: .65em; color: var(--bs-warning-text-emphasis); top: -.3em; }
+.hop-hash { font-family: var(--bs-font-monospace); font-size: .7em; color: var(--bs-secondary-color); }
+.hop-arrow { font-size: .75rem; color: var(--bs-secondary-color); }
+.hop-cands {
+    margin-top: .4rem; padding: .4rem .6rem; border-radius: .4rem;
+    background: var(--bs-tertiary-bg); display: flex; flex-direction: column; gap: .2rem;
+}
+
+/* Heard (analyzer) */
+.bubble .meta .heard { display: inline-flex; align-items: center; gap: .2rem; }
+
+/* Odkazy a vizitky ve zprávách */
+.msg-link { color: inherit; text-decoration: underline; text-underline-offset: 2px; word-break: break-all; }
+.msg.in .msg-link { color: var(--bs-link-color); }
+.card-chip {
+    display: inline-flex; align-items: center; gap: .4rem; max-width: 100%;
+    margin: .15rem 0; padding: .3rem .6rem; border-radius: .6rem; font-size: .9rem;
+    border: 1px solid var(--bs-border-color); background: var(--bs-body-bg); color: var(--bs-body-color);
+    white-space: nowrap; vertical-align: middle;
+}
+.card-chip:hover { border-color: var(--bs-primary); }
+.card-chip .bi { color: var(--bs-primary); font-size: 1.1rem; }
+.card-chip .card-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.card-chip .card-type { font-size: .75rem; color: var(--bs-secondary-color); }
+.msg.out .card-chip { background: rgba(255,255,255,.15); border-color: rgba(255,255,255,.4); color: #fff; }
+.msg.out .card-chip .bi, .msg.out .card-chip .card-type { color: rgba(255,255,255,.85); }
+.trace-snr { font-size: .7em; color: var(--bs-secondary-color); margin-left: .3rem; }
+
+/* Region (scope) */
+.scope-badge {
+    display: inline-flex; align-items: center; gap: .15rem; padding: 0 .35rem; border-radius: .6rem;
+    background: rgba(var(--bs-info-rgb), .18); color: inherit; font-weight: 600; white-space: nowrap;
+}
+.msg.out .scope-badge { background: rgba(255,255,255,.22); }
+
+/* Akce v seznamu konverzací */
+.conv-act {
+    flex: 0 0 auto; padding: .15rem .4rem; color: var(--bs-secondary-color); border: 0; opacity: .55;
+}
+.conv-act:hover { color: var(--bs-danger); opacity: 1; }
+#conv-list .list-group-item.active .conv-act { color: rgba(255,255,255,.8); }
+@media (hover: hover) {
+    .conv-act { opacity: 0; }
+    #conv-list .list-group-item:hover .conv-act { opacity: .8; }
+}
+
+/* ---------- mapa cesty zprávy ---------- */
+.path-map-wrap { position: relative; border-radius: .5rem; overflow: hidden; border: 1px solid var(--bs-border-color); }
+.path-map { height: 240px; cursor: zoom-in; background: var(--bs-tertiary-bg); }
+.path-map-expand { position: absolute; top: .4rem; right: .4rem; z-index: 500; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
+.route-line { stroke-dasharray: 10 8; animation: route-flow 1s linear infinite; }
+.route-gap { stroke-dasharray: 2 9; }
+@keyframes route-flow { to { stroke-dashoffset: -18; } }
+@media (prefers-reduced-motion: reduce) { .route-line { animation: none; } }
+.route-arrow { background: none; border: 0; }
+.route-arrow svg { display: block; overflow: visible; }
+.route-label { font-size: .75rem; padding: 1px 5px; }
+.route-dot { display: inline-block; flex-shrink: 0; width: .7rem; height: .7rem; border-radius: 50%; margin-right: .4rem; vertical-align: -.05rem; }
+.rx-route { cursor: pointer; }
+.rx-route.route-active { background: var(--bs-secondary-bg); }
+.map-overlay { position: fixed; inset: 0; z-index: 2000; display: flex; flex-direction: column; background: var(--bs-body-bg); }
+.map-overlay-bar { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; padding: .5rem .75rem; border-bottom: 1px solid var(--bs-border-color); }
+.map-overlay-map { flex: 1; min-height: 0; }
+.map-overlay-legend { display: flex; flex-wrap: wrap; gap: .3rem 1rem; padding: .4rem .75rem; border-top: 1px solid var(--bs-border-color); color: var(--bs-secondary-color); }
+.map-key { display: inline-block; width: .7rem; height: .7rem; border-radius: 50%; margin-right: .3rem; vertical-align: -.05rem; border: 2px solid #fff; box-shadow: 0 0 0 1px #999; }
+.map-key-amb { background: #343a40; border: 2px dashed #fff; }
+.map-leg.active { background: var(--bs-secondary-bg); color: var(--bs-body-color); border-color: var(--bs-body-color); }
+[data-bs-theme="dark"] .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.95) contrast(.9); }
+[data-bs-theme="dark"] .leaflet-container { background: #1b1f23; }
+@media (max-width: 575.98px) { .map-legs { order: 3; width: 100%; } }
+[data-bs-theme="dark"] .leaflet-tooltip { background: #2b3035; color: #dee2e6; border-color: #495057; }
+[data-bs-theme="dark"] .leaflet-tooltip-right::before { border-right-color: #2b3035; }
+[data-bs-theme="dark"] .leaflet-tooltip-left::before { border-left-color: #2b3035; }
+[data-bs-theme="dark"] .leaflet-tooltip-top::before { border-top-color: #2b3035; }
+[data-bs-theme="dark"] .leaflet-bar a { background: #2b3035; color: #dee2e6; border-color: #495057; }
+[data-bs-theme="dark"] .leaflet-control-attribution { background: rgba(33,37,41,.8); color: #adb5bd; }
+
+/* ---------- režim Bluetooth ---------- */
+.ble-bar { background: var(--bs-tertiary-bg); }
+.ble-bar.ble-off { background: var(--bs-warning-bg-subtle); color: var(--bs-warning-text-emphasis); }
+.ble-bar.ble-ok { background: var(--bs-success-bg-subtle); color: var(--bs-success-text-emphasis); }
+.ble-bar .btn { white-space: nowrap; }
+
+/* heslo k uzlu: textové pole se skrytými znaky (správce hesel do něj ani do okolí nic nevyplňuje) */
+.rc-secret { -webkit-text-security: disc; text-security: disc; }
+
+/* ---------- mapa sítě ---------- */
+.net-map { min-height: 0; background: var(--bs-tertiary-bg); }
+.nm-icon { background: none; border: 0; }
+.nm-pin { display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 50%;
+    color: #fff; font-size: 13px; border: 2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.4); }
+.nm-pin-sm { width: 24px; height: 24px; font-size: 12px; flex-shrink: 0; }
+.nm-pin.a0 { background: #198754; }
+.nm-pin.a1 { background: #e0a800; }
+.nm-pin.a2 { background: #fd7e14; }
+.nm-pin.a3 { background: #6c757d; }
+.nm-pin.nm-dashed { border-style: dashed; opacity: .85; }
+.nm-pin.nm-home { background: #dc3545; }
+.nm-legend { display: flex; flex-wrap: wrap; gap: .2rem .8rem; }
+.nm-dot { display: inline-block; width: .7rem; height: .7rem; border-radius: 50%; margin-right: .3rem; vertical-align: -.05rem; background: #999; }
+.nm-dot.a0 { background: #198754; } .nm-dot.a1 { background: #e0a800; } .nm-dot.a2 { background: #fd7e14; } .nm-dot.a3 { background: #6c757d; }
+.nm-dot.nm-dashed { background: transparent; border: 2px dashed #888; }
+.nm-popup .btn { padding: .15rem .5rem; font-size: .8rem; }
+.leaflet-popup-content { margin: 10px 12px; }
+[data-bs-theme="dark"] .leaflet-popup-content-wrapper, [data-bs-theme="dark"] .leaflet-popup-tip { background: #2b3035; color: #dee2e6; }
+.tabs-bar .nav-link span:not(.badge) { font-size: .72rem; }
+.dm-tries { white-space: nowrap; }
+.dm-tries .bi { margin-right: .1rem; }
+
+/* odpověď trasou (ikonka v bublině příchozí zprávy) */
+.route-reply { cursor: pointer; opacity: .55; }
+.route-reply:hover { opacity: 1; color: var(--bs-primary); }
+.route-reply.sent { opacity: 1; color: var(--bs-success); }
+
+/* patička levého sloupce: verze firmwaru companionu (neroluje se seznamem) */
+.sidebar-footer { flex: 0 0 auto; font-size: .75rem; line-height: 1.6; }

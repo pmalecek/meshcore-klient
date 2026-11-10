@@ -1,0 +1,9 @@
+# místní konfigurace (hesla, token HA)
+/config/config.local.php
+# nahraná pozadí a další data
+/data/
+# editor / systém
+.DS_Store
+.idea/
+.vscode/
+*.swp

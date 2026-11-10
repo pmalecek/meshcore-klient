@@ -1,0 +1,23 @@
+# Příklad virtuálního hostu pro Apache.
+# DocumentRoot míří jen do public/ – config/, src/ a bin/ zůstávají mimo web.
+
+<VirtualHost *:443>
+    ServerName meshcore.example.cz
+    DocumentRoot /var/www/meshcore-klient/public
+
+    <Directory /var/www/meshcore-klient/public>
+        AllowOverride All
+        Require all granted
+        Options -Indexes
+    </Directory>
+
+    # Long-polling drží požadavek až ~20 s
+    Timeout 60
+
+    SSLEngine on
+    # SSLCertificateFile    /etc/letsencrypt/live/meshcore.example.cz/fullchain.pem
+    # SSLCertificateKeyFile /etc/letsencrypt/live/meshcore.example.cz/privkey.pem
+
+    ErrorLog  ${APACHE_LOG_DIR}/meshcore-error.log
+    CustomLog ${APACHE_LOG_DIR}/meshcore-access.log combined
+</VirtualHost>

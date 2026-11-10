@@ -1,0 +1,12 @@
+[Unit]
+Description=MeshCore klient – kontrola "heard" přes analyzer
+After=network-online.target mariadb.service
+
+[Service]
+Type=oneshot
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/meshcore-klient
+ExecStart=/usr/bin/php /var/www/meshcore-klient/bin/heard.php
+NoNewPrivileges=true
+ProtectSystem=full

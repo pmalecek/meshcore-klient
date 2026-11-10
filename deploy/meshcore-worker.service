@@ -1,0 +1,20 @@
+[Unit]
+Description=MeshCore klient – worker (Home Assistant -> MariaDB)
+After=network-online.target mariadb.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/meshcore-klient
+ExecStart=/usr/bin/php /var/www/meshcore-klient/bin/worker.php
+Restart=always
+RestartSec=5
+# zabezpečení
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

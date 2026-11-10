@@ -1,0 +1,10 @@
+[Unit]
+Description=MeshCore klient – kontrola "heard" každých 5 s
+
+[Timer]
+OnBootSec=60
+OnUnitActiveSec=5
+AccuracySec=1
+
+[Install]
+WantedBy=timers.target

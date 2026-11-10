@@ -1,0 +1,15 @@
+Options -Indexes
+
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "DENY"
+    Header always set Referrer-Policy "same-origin"
+</IfModule>
+
+# Knihovny v assets/vendor se nemění – můžou se cachovat dlouho
+<IfModule mod_expires.c>
+    <FilesMatch "\.(css|js|woff2?)$">
+        ExpiresActive On
+        ExpiresDefault "access plus 7 days"
+    </FilesMatch>
+</IfModule>
