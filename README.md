@@ -73,7 +73,7 @@ MeshCore companion ──Web Bluetooth── prohlížeč (/ble) ──(voliteln
 
 ```bash
 # 1) soubory
-git clone https://github.com/<uzivatel>/meshcore-klient.git /var/www/meshcore-klient
+git clone https://github.com/pmalecek/meshcore-klient.git /var/www/meshcore-klient
 cd /var/www/meshcore-klient
 
 # 2) databáze a uživatel
