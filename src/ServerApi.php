@@ -1,0 +1,311 @@
+<?php
+declare(strict_types=1);
+
+namespace MeshClient;
+
+use InvalidArgumentException;
+
+/**
+ * Akce webového API (public/api.php) v režimu backend = 'server'.
+ *
+ * handle() vrací [data, HTTP kód] pro akce, které v tomto režimu obsluhuje meshcore-server,
+ * nebo null – pak akci zpracuje společný kód v api.php (čtení z DB klienta, nastavení, heard…).
+ * Opakování DM, fronta odesílání a regiony kanálů jsou na serveru; klientské DmSender/SendQueue
+ * se v tomto režimu nepoužívají.
+ */
+final class ServerApi
+{
+    /** Akce, které meshcore-server zatím neumí. */
+    private const UNSUPPORTED = [
+        'POST contact_import'  => 'Import vizitky',
+        'POST path_discover'   => 'Zjištění cesty',
+        'POST room_login'      => 'Přihlášení do room serveru',
+        'POST remote_cmd'      => 'Vzdálená správa',
+        'POST remote_status'   => 'Stav vzdáleného uzlu',
+        'POST trace'           => 'Trace',
+        'GET history'          => 'Historie senzorů',
+    ];
+
+    private McServer $srv;
+
+    public function __construct(
+        private readonly Db $db,
+        private readonly array $cfg,
+        private readonly Api $api,
+    ) {
+        $this->srv = McServer::fromConfig($cfg);
+    }
+
+    /** Funkce, které rozhraní v režimu server skryje (posílá se v init). */
+    public static function capabilities(): array
+    {
+        return [
+            'backend' => 'server', 'remote' => false, 'room_login' => false, 'trace' => false,
+            'path_discover' => false, 'contact_import' => false, 'ha_devices' => false, 'traffic' => false,
+            'region_none' => false,
+        ];
+    }
+
+    /** @return array{0:array,1:int}|null */
+    public function handle(string $route, array $input): ?array
+    {
+        if (isset(self::UNSUPPORTED[$route])) {
+            return [['error' => self::UNSUPPORTED[$route] . ' zatím meshcore-server neumí.'], 400];
+        }
+        try {
+            return match ($route) {
+                'GET self_info'        => $this->selfInfo(),
+                'GET card_lookup'      => $this->cardLookup((string) ($_GET['pk'] ?? '')),
+                'POST contact_add'     => $this->contactAdd((string) ($input['pk'] ?? '')),
+                'POST contact_remove'  => $this->contactRemove(is_array($input['pks'] ?? null) ? $input['pks'] : []),
+                'POST path_reset'      => $this->pathReset((string) ($input['pk'] ?? '')),
+                'POST advert'          => $this->advert(!empty($input['flood'])),
+                'POST channel_add'     => $this->channelAdd($input),
+                'POST channel_delete'  => $this->channelDelete((int) ($input['idx'] ?? -1)),
+                'POST channel_secret'  => $this->channelSecret((int) ($input['idx'] ?? -1)),
+                'POST conv_settings'   => $this->convSettings($input),
+                'POST read'            => $this->read($input),
+                'POST send'            => $this->send($input),
+                default                => null,
+            };
+        } catch (McServerException $e) {
+            $code = $e->getCode();
+            return [['error' => $e->getMessage()], $code === 503 ? 503 : ($code === 0 ? 502 : 400)];
+        }
+    }
+
+    // ------------------------------------------------------------------ akce
+
+    private function selfInfo(): array
+    {
+        $dev = $this->srv->get('/device');
+        $c = $dev['config'] ?? [];
+        $lat = isset($c['adv_lat']) && is_numeric($c['adv_lat']) && (float) $c['adv_lat'] != 0.0 ? (float) $c['adv_lat'] : null;
+        $lon = isset($c['adv_lon']) && is_numeric($c['adv_lon']) && (float) $c['adv_lon'] != 0.0 ? (float) $c['adv_lon'] : null;
+        return [['self' => [
+            'public_key' => strtolower((string) ($dev['public_key'] ?? '')),
+            'name'       => (string) ($dev['name'] ?? ''),
+            'type'       => (int) ($dev['adv_type'] ?? 1) ?: 1,
+            'lat'        => $lat,
+            'lon'        => $lon,
+        ]], 200];
+    }
+
+    private function cardLookup(string $pk): array
+    {
+        $pk = strtolower($pk);
+        if (!preg_match('/^[0-9a-f]{12,64}$/', $pk)) {
+            throw new InvalidArgumentException('Neplatný klíč');
+        }
+        $pk12 = substr($pk, 0, 12);
+        $known = $this->db->one('SELECT pubkey_prefix, name FROM contacts WHERE pubkey_prefix = ?', [$pk12]);
+        $disc = null;
+        $err = null;
+        if (!$known) {
+            try {
+                $c = $this->srv->get('/contacts/' . $pk);
+                $disc = [
+                    'name'        => $c['name'] ?? null,
+                    'type'        => isset($c['type']) ? (int) $c['type'] : null,
+                    'last_advert' => $c['last_advert_at'] ?? null,
+                    'path_len'    => isset($c['out_path_len']) ? (int) $c['out_path_len'] : null,
+                ];
+            } catch (McServerException $e) {
+                $err = $e->getCode() === 404 ? 'Uzel zatím server neslyšel (žádný advert)' : $e->getMessage();
+            }
+        }
+        return [['known' => $known ? ['conv' => 'd:' . $known['pubkey_prefix'], 'name' => $known['name']] : null,
+                 'discovered' => $disc, 'discovered_error' => $err], 200];
+    }
+
+    private function contactAdd(string $pk): array
+    {
+        $pk12 = self::pk12($pk);
+        try {
+            $this->srv->post('/contacts/' . $pk12 . '/device');
+        } catch (McServerException $e) {
+            if ($e->getCode() === 404) {
+                throw new InvalidArgumentException('Uzel zatím server neslyšel – kontakt jde přidat až po jeho advertu.');
+            }
+            throw $e;
+        }
+        $this->sync()->syncContacts();
+        return [['ok' => true, 'conversations' => $this->api->conversations()], 200];
+    }
+
+    private function contactRemove(array $pks): array
+    {
+        $pks = array_values(array_unique(array_filter(array_map(
+            static fn($p) => substr(strtolower((string) $p), 0, 12), $pks
+        ), static fn($p) => (bool) preg_match('/^[0-9a-f]{12}$/', $p))));
+        if (!$pks || count($pks) > 500) {
+            throw new InvalidArgumentException('Vyber 1–500 kontaktů');
+        }
+        set_time_limit(300);
+        $removed = $failed = 0;
+        foreach ($pks as $pk) {
+            try {
+                $this->srv->delete('/contacts/' . $pk . '/device');
+                $this->db->query('DELETE FROM contacts WHERE pubkey_prefix = ?', [$pk]);
+                $removed++;
+            } catch (McServerException $e) {
+                if ($e->getCode() === 503) {
+                    throw $e;
+                }
+                $failed++;
+            }
+        }
+        $this->sync()->syncContacts();
+        return [['ok' => true, 'removed' => $removed, 'failed' => $failed, 'conversations' => $this->api->conversations()], 200];
+    }
+
+    private function pathReset(string $pk): array
+    {
+        $r = $this->srv->post('/contacts/' . self::pk12($pk) . '/reset-path');
+        $this->sync()->syncContacts();
+        return [['ok' => true, 'result' => $r, 'conversations' => $this->api->conversations()], 200];
+    }
+
+    private function advert(bool $flood): array
+    {
+        $this->srv->post('/device/advert', ['flood' => $flood]);
+        return [['ok' => true, 'flood' => $flood], 200];
+    }
+
+    private function channelAdd(array $input): array
+    {
+        $name = trim((string) ($input['name'] ?? ''));
+        $secret = strtolower(trim((string) ($input['secret'] ?? '')));
+        if ($name === '' || strlen($name) > 31 || preg_match('/[\x00-\x1f]/', $name)) {
+            throw new InvalidArgumentException('Název kanálu musí mít 1–31 bajtů');
+        }
+        if ($secret !== '' && !preg_match('/^[0-9a-f]{32}$/', $secret)) {
+            throw new InvalidArgumentException('Klíč musí mít 32 hex znaků (16 bajtů)');
+        }
+        if ($secret === '' && $name[0] !== '#') {
+            throw new InvalidArgumentException('Kanál bez klíče musí být hashtagový (začínat #)');
+        }
+        $used = array_map('intval', array_column($this->srv->get('/channels')['items'] ?? [], 'idx'));
+        $slots = (int) ($this->db->value("SELECT v FROM worker_state WHERE k = 'channel_slots'") ?: 8);
+        $idx = null;
+        for ($i = 0; $i < $slots; $i++) {
+            if (!in_array($i, $used, true)) {
+                $idx = $i;
+                break;
+            }
+        }
+        if ($idx === null) {
+            throw new InvalidArgumentException("Companion nemá volný slot pro kanál (obsazeno $slots)");
+        }
+        $this->srv->put('/channels/' . $idx, ['name' => $name] + ($secret !== '' ? ['secret' => $secret] : []));
+        (new Retention($this->db))->deleteConversation('c:' . $idx);
+        $this->db->query('DELETE FROM conv_settings WHERE conv_key = ?', ['c:' . $idx]);
+        $this->sync()->syncChannels();
+        return [['ok' => true, 'idx' => $idx, 'conversations' => $this->api->conversations()], 200];
+    }
+
+    private function channelDelete(int $idx): array
+    {
+        if ($idx < 0 || $idx > 255) {
+            throw new InvalidArgumentException('Neplatný kanál');
+        }
+        $this->srv->delete('/channels/' . $idx);
+        $this->db->query('DELETE FROM channels WHERE channel_idx = ?', [$idx]);
+        (new Retention($this->db))->deleteConversation('c:' . $idx);
+        $this->db->query('DELETE FROM conv_settings WHERE conv_key = ?', ['c:' . $idx]);
+        $this->sync()->syncChannels();
+        return [['ok' => true, 'conversations' => $this->api->conversations()], 200];
+    }
+
+    /** Klíč kanálu ke sdílení – server ho vydá jen v exportu (token s oprávněním admin). */
+    private function channelSecret(int $idx): array
+    {
+        try {
+            $exp = $this->srv->get('/export');
+        } catch (McServerException $e) {
+            if (in_array($e->getCode(), [401, 403], true)) {
+                throw new InvalidArgumentException('Klíč kanálu vydá meshcore-server jen tokenu s oprávněním admin.');
+            }
+            throw $e;
+        }
+        foreach ($exp['channels'] ?? [] as $c) {
+            if ((int) ($c['idx'] ?? -1) === $idx && is_string($c['secret'] ?? null) && preg_match('/^[0-9a-f]{32}$/i', $c['secret'])) {
+                return [['secret' => strtolower($c['secret']), 'name' => $c['name'] ?? null], 200];
+            }
+        }
+        throw new InvalidArgumentException('Klíč kanálu se nepodařilo načíst');
+    }
+
+    /** Region kanálu drží server (PATCH /channels/{idx}); ostatní nastavení zpracuje api.php. */
+    private function convSettings(array $input): ?array
+    {
+        $conv = (string) ($input['conv'] ?? '');
+        if (!array_key_exists('scope', $input) || !preg_match('/^c:(\d+)$/', $conv, $m)) {
+            return null;
+        }
+        $scope = Settings::normScope($input['scope']);
+        if ($scope === '*') {
+            throw new InvalidArgumentException('„Bez regionu“ meshcore-server nepodporuje – zvol výchozí nebo konkrétní region.');
+        }
+        $this->srv->patch('/channels/' . (int) $m[1], ['region' => $scope === null ? null : '#' . $scope]);
+        return null; // uložení do conv_settings (zobrazení) zařídí api.php
+    }
+
+    /** Přečteno: uložit v klientu (api.php) a poslat i na server, ať se počty srovnají na všech zařízeních. */
+    private function read(array $input): ?array
+    {
+        $conv = (string) ($input['conv'] ?? '');
+        if (Api::validConv($conv)) {
+            try {
+                ServerSync::pushRead($this->srv, $this->db, (string) ($this->cfg['server']['reader'] ?? 'klient'), $conv, (int) ($input['last_id'] ?? 0));
+            } catch (McServerException) {
+                // nevadí – přečtení platí aspoň lokálně
+            }
+        }
+        return null;
+    }
+
+    private function send(array $input): array
+    {
+        $conv = (string) ($input['conv'] ?? '');
+        $text = trim((string) ($input['text'] ?? ''));
+        if (!Api::validConv($conv)) {
+            throw new InvalidArgumentException('Neplatná konverzace');
+        }
+        if ($text === '') {
+            throw new InvalidArgumentException('Prázdná zpráva');
+        }
+        $limit = Api::byteLimit($conv, $this->api->selfName($this->cfg));
+        if (strlen($text) > $limit) {
+            throw new InvalidArgumentException('Zpráva má ' . strlen($text) . ' B, limit je ' . $limit . ' B.');
+        }
+        [$t, $to] = explode(':', $conv, 2);
+        // „odeslat znovu“ – připojit novou zprávu k původní (MessageStore::linkDuplicate)
+        $resendOf = (int) ($input['resend_of'] ?? 0);
+        if ($resendOf > 0 && $this->db->value("SELECT id FROM messages WHERE id = ? AND conv_key = ? AND direction = 'out'", [$resendOf, $conv])) {
+            $this->db->query('INSERT INTO worker_state (k, v) VALUES (?, ?) ON DUPLICATE KEY UPDATE v = VALUES(v), updated_at = CURRENT_TIMESTAMP(6)',
+                [MessageStore::resendKey($conv, $text), (string) $resendOf]);
+        }
+        $r = $this->srv->post('/messages', ['kind' => $t === 'c' ? 'channel' : 'dm', 'to' => $t === 'c' ? (int) $to : $to, 'text' => $text]);
+        // zprávu uložit hned (worker ji dostane i přes WebSocket – podle srv_id se nezdvojí)
+        $id = is_array($r['message'] ?? null) ? $this->sync()->upsertMessage($r['message']) : null;
+        return [['ok' => true, 'id' => $id], 200];
+    }
+
+    // ------------------------------------------------------------------ pomocné
+
+    private function sync(): ServerSync
+    {
+        return new ServerSync($this->db, $this->srv, new MessageStore($this->db, (int) ($this->cfg['app']['dedup_window'] ?? 1800)),
+            (string) ($this->cfg['server']['reader'] ?? 'klient'));
+    }
+
+    private static function pk12(string $pk): string
+    {
+        $pk12 = substr(strtolower($pk), 0, 12);
+        if (!preg_match('/^[0-9a-f]{12}$/', $pk12)) {
+            throw new InvalidArgumentException('Neplatný klíč');
+        }
+        return $pk12;
+    }
+}

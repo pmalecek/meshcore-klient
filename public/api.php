@@ -8,6 +8,8 @@ use MeshClient\BleStore;
 use MeshClient\DmSender;
 use MeshClient\SendQueue;
 use MeshClient\HaRest;
+use MeshClient\McServer;
+use MeshClient\ServerApi;
 use MeshClient\History;
 use MeshClient\MessageStore;
 use MeshClient\Retention;
@@ -133,6 +135,21 @@ if ($method === 'POST') {
     }
 }
 
+// ---- backend meshcore-server: akce, které obsluhuje server (src/ServerApi.php), ostatní pokračují níže ----
+if (McServer::enabled($cfg)) {
+    try {
+        $r = (new ServerApi(db(), $cfg, $api))->handle("$method $action", $input ?? []);
+    } catch (InvalidArgumentException $e) {
+        out(['error' => $e->getMessage()], 400);
+    } catch (Throwable $e) {
+        error_log('[meshcore-klient] ' . $e->getMessage());
+        out(['error' => $e->getMessage()], 500);
+    }
+    if ($r !== null) {
+        out($r[0], $r[1]);
+    }
+}
+
 try {
     switch ("$method $action") {
         case 'GET state':
@@ -149,6 +166,8 @@ try {
                 'analyzer'      => !empty($cfg['analyzer']['enabled']) && !empty($cfg['analyzer']['url']),
                 'home'          => $api->home($cfg),
                 'self_name'     => $api->selfName($cfg),
+                // režim napojení a funkce, které v něm nejsou (rozhraní je skryje)
+                'caps'          => McServer::enabled($cfg) ? ServerApi::capabilities() : ['backend' => 'ha'],
             ]);
 
         case 'GET account':

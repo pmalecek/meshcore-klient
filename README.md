@@ -1,9 +1,11 @@
 # MeshCore klient
 
-Webový klient pro [MeshCore](https://meshcore.co.uk/), který má dva režimy:
+Webový klient pro [MeshCore](https://meshcore.co.uk/), který má tři režimy:
 
 - **Home Assistant:** běží nad integrací [meshcore-ha](https://github.com/meshcore-dev/meshcore-ha).
   Companion je připojený k Home Assistantu a klient k němu přistupuje z prohlížeče odkudkoli.
+- **meshcore-server:** místo Home Assistantu běží nad [meshcore-server](https://github.com/pmalecek/meshcore-server),
+  samostatným serverem, který drží spojení s companionem (WiFi, USB, BLE). Viz [Napojení na meshcore-server](#napojení-na-meshcore-server).
 - **Bluetooth (`/ble`):** připojí companion přímo z prohlížeče přes Web Bluetooth (Chrome / Edge).
   Funguje i bez přihlášení a lze ho nainstalovat jako aplikaci (PWA).
 
@@ -150,7 +152,7 @@ Každý kód TOTP jde použít jen jednou. Po 5 neúspěšných pokusech z jedn�
 ```bash
 git pull
 # nové migrace v sql/migrations/ spusť jen jednou, v pořadí čísel, např.:
-mariadb meshcore < sql/migrations/013_channel_scope.sql
+mariadb meshcore < sql/migrations/014_meshcore_server.sql
 systemctl restart meshcore-worker
 ```
 
@@ -166,6 +168,39 @@ Při nové instalaci se migrace nespouští, `sql/schema.sql` už obsahuje všec
   a doplňuje se 60 za hodinu. Klient na to umí čekat. Hodnoty lze změnit jen úpravou
   `GOVERNED_LANES` v `custom_components/meshcore/traffic.py` a aktualizace integrace je přepíše.
 - **Historie:** začne se plnit od spuštění workeru, starší zprávy z HA se nepřenášejí.
+
+## Napojení na meshcore-server
+
+Místo Home Assistantu může klient brát data z [meshcore-server](https://github.com/pmalecek/meshcore-server).
+Na serveru vytvoř token a v `config/config.local.php` nastav:
+
+```bash
+meshcore-server token create meshcore-klient --scope admin
+# server v Dockeru:
+docker compose exec meshcore-server meshcore-server token create meshcore-klient --scope admin
+```
+
+Token se zobrazí jen jednou. Oprávnění `admin` je potřeba kvůli sdílení klíče kanálu (export), na ostatní stačí `write`.
+
+```php
+'backend' => 'server',
+'server'  => ['url' => 'http://192.168.1.50:8080', 'token' => 'mcs_…', 'reader' => 'klient'],
+```
+
+Pak spusť migraci `sql/migrations/014_meshcore_server.sql` (u nové instalace není potřeba) a restartuj worker.
+
+- Worker drží WebSocket se serverem a zprávy, kontakty a kanály zrcadlí do databáze klienta. Po výpadku
+  pokračuje od poslední zpracované události, při prvním spuštění stáhne historii za `backfill_days` dní.
+- **Odesílání, opakování DM, frontu a regiony kanálů řeší server.** Klientská fronta, opakování DM
+  a ukazatel limitu provozu se v tomto režimu nepoužívají.
+- **Nepřečtené** se synchronizují se serverem (čtenář `reader`), takže počty sedí na všech zařízeních.
+- **Heard:** u odeslané zprávy do kanálu je vidět počet opakování, která slyšel companion (ze serveru),
+  i počet observerů z analyzeru.
+- Kontakty v companionu jsou v záložce Kontakty, ostatní uzly, které server slyšel, mezi slyšenými uzly.
+  Plný companion uvolňuje místo sám server.
+- **Zatím chybí:** vzdálená správa repeaterů, přihlášení do room serveru (a autoři příspěvků v něm), trace,
+  zjištění cesty, import exportované karty kontaktu, sledování uzlů se senzory a „bez regionu“ u kanálu.
+  Rozhraní je v tomto režimu skryje. Klíč kanálu ke sdílení vydá server jen tokenu s oprávněním `admin`.
 
 ## Struktura
 

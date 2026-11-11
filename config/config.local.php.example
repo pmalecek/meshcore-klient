@@ -6,6 +6,14 @@ return [
         'user'     => 'meshcore',
         'password' => 'ZMEN_HESLO',
     ],
+    // Zdroj dat: 'ha' = Home Assistant (integrace meshcore-ha), 'server' = meshcore-server
+    // 'backend' => 'server',
+    // 'server' => [
+    //     'url'    => 'http://192.168.1.50:8080',
+    //     'token'  => 'mcs_…',        // meshcore-server token create meshcore-klient --scope admin
+    //     'reader' => 'klient',       // čtenář pro nepřečtené (sdílené mezi zařízeními)
+    //     'backfill_days' => 30,      // historie stažená při první synchronizaci (0 = vše)
+    // ],
     'ha' => [
         'url'   => 'http://homeassistant.local:8123',
         // Long-lived access token (HA → Profil → Zabezpečení → Dlouhodobé přístupové tokeny).

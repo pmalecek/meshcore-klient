@@ -2,8 +2,8 @@
 declare(strict_types=1);
 
 /**
- * Worker – drží WebSocket spojení s Home Assistantem, odebírá události meshcore-ha
- * a ukládá je do databáze. Spouští se jako systemd služba (viz deploy/).
+ * Worker – drží WebSocket spojení s Home Assistantem (nebo s meshcore-serverem při backend = 'server'),
+ * odebírá události a ukládá je do databáze. Spouští se jako systemd služba (viz deploy/).
  *
  *   php bin/worker.php            – běh
  *   php bin/worker.php -v         – běh s podrobným výpisem
@@ -11,8 +11,10 @@ declare(strict_types=1);
 
 use MeshClient\DmSender;
 use MeshClient\HaTemplate;
+use MeshClient\McServer;
 use MeshClient\MessageStore;
 use MeshClient\SendQueue;
+use MeshClient\ServerWorker;
 use MeshClient\Settings;
 use MeshClient\TrafficBudget;
 use MeshClient\WebSocketClient;
@@ -24,6 +26,19 @@ $verbose = in_array('-v', $argv, true);
 $store   = new MessageStore(db(), (int) ($cfg['app']['dedup_window'] ?? 1800));
 $dm      = new DmSender(db());
 $sq      = new SendQueue(db());
+
+// ---- backend meshcore-server: samostatná smyčka (src/ServerWorker.php) ----
+if (McServer::enabled($cfg)) {
+    $sw = new ServerWorker($cfg, $store, $verbose);
+    if (function_exists('pcntl_async_signals')) {
+        pcntl_async_signals(true);
+        pcntl_signal(SIGTERM, static fn() => $sw->stop());
+        pcntl_signal(SIGINT, static fn() => $sw->stop());
+    }
+    $sw->run();
+    fwrite(STDERR, '[' . date('Y-m-d H:i:s') . "] Worker ukončen\n");
+    exit(0);
+}
 
 $events = [
     'meshcore_message',

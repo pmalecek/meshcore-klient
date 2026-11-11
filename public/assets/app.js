@@ -8,6 +8,7 @@
 
     var S = {
         ble: !!window.MC_BACKEND, // režim Bluetooth
+        caps: {},           // funkce podle napojení (HA / meshcore-server), viz can()
         convs: {},          // conv_key -> konverzace
         current: null,      // aktuální conv_key
         messages: {},       // id -> zpráva (aktuální konverzace)
@@ -388,7 +389,7 @@
         }
         $('#chat-subtitle').text(sub);
         $('#btn-info').toggleClass('d-none', c.kind === 'channel');
-        $('#btn-room').toggleClass('d-none', !(c.kind === 'contact' && c.type === 3));
+        $('#btn-room').toggleClass('d-none', !(c.kind === 'contact' && c.type === 3 && can('room_login')));
         $('#btn-path').toggleClass('d-none', c.kind === 'channel')
             .attr('title', 'Cesta: ' + (c.path_len == null || c.path_len < 0 ? 'flood' : c.path_len === 0 ? 'přímo' : c.path_len + ' hop'));
         var fav = isFav(c.conv);
@@ -603,7 +604,13 @@
         no_coordinator: 'Integrace MeshCore v HA neběží.'
     };
 
+    // Funkce, kterou aktuální napojení neumí (meshcore-server zatím: vzdálená správa, trace, room login…)
+    function can(feature) { return !S.caps || S.caps[feature] !== false; }
+    function isSrv() { return !!(S.caps && S.caps.backend === 'server'); }
+    function backendName() { return isSrv() ? 'meshcore-server' : 'Home Assistant'; }
+
     function traceButton(pk12) {
+        if (!can('trace')) { return ''; }
         return '<button type="button" class="btn btn-outline-secondary btn-sm btn-trace" data-pk="' + pk12 + '">' +
             '<i class="bi bi-signpost-split me-1"></i>Trasovat</button>';
     }
@@ -719,7 +726,7 @@
     function heardBadge(m) {
         var h = m.heard, rep = m.repeaters || 0;
         var heardTotal = h && h.state === 'heard' && h.repeats ? h.repeats : null;
-        var out = '<span title="' + rep + ' repeaterů zachytil tvůj companion (Home Assistant)' +
+        var out = '<span title="' + rep + ' repeaterů zachytil tvůj companion (' + backendName() + ')' +
             (heardTotal !== null ? ' / ' + heardTotal + '× heard v analyzeru' : '') + '">' +
             '<i class="bi bi-broadcast"></i> ' + rep + (heardTotal !== null ? '/' + heardTotal : '') + '</span>';
         if (!h) {
@@ -1160,7 +1167,7 @@
         if (!st.worker_alive) {
             setStatusDot('err', 'Worker neběží');
         } else if (!st.worker_connected) {
-            setStatusDot('err', 'Worker není připojen k Home Assistantu');
+            setStatusDot('err', 'Worker není připojen k ' + (isSrv() ? 'meshcore-serveru' : 'Home Assistantu'));
         } else if (st.companion_connected === false) {
             setStatusDot('warn', 'MeshCore companion je odpojený');
         } else {
@@ -1205,7 +1212,7 @@
         }
         var html = '<table class="table table-sm mb-0">' +
             row('Worker běží', yesNo(st.worker_alive)) +
-            row('Připojeno k HA', yesNo(st.worker_connected)) +
+            row(isSrv() ? 'Připojeno k meshcore-serveru' : 'Připojeno k HA', yesNo(st.worker_connected)) +
             row('Companion připojen', yesNo(st.companion_connected)) +
             row('Poslední událost', esc(st.last_event_at ? new Date(st.last_event_at).toLocaleString('cs-CZ') : '–')) +
             (st.worker_error && !st.worker_connected ? row('Chyba workeru', '<span class="text-danger">' + esc(st.worker_error) + '</span>') : '') +
@@ -1323,7 +1330,7 @@
             if (m.dir === 'out') {
                 var oh = '<h6 class="mt-3">Odesláno ' + list.length + '×</h6>' +
                     '<div class="table-responsive"><table class="table table-sm small align-middle" id="copies-table">' +
-                    '<thead><tr><th>#</th><th>Čas</th><th title="Repeatery zachycené companionem (HA)">Repeatery</th>' +
+                    '<thead><tr><th>#</th><th>Čas</th><th title="Repeatery zachycené companionem">Repeatery</th>' +
                     (m.type === 'channel' ? '<th title="Heard v analyzeru">Heard</th><th title="Observeři kromě tvého">Observeři</th>' : '<th>Doručení</th>') +
                     '</tr></thead><tbody>';
                 list.forEach(function (c, i) {
@@ -1378,7 +1385,7 @@
             '</table>';
         html += '<div class="d-flex gap-2 mt-3"><button type="button" class="btn btn-outline-secondary btn-sm" id="info-path">' +
             '<i class="bi bi-signpost-2 me-1"></i>Cesta…</button>' + traceButton(c.pk) + '</div>';
-        var remote = c.type === 2 || c.type === 3; // repeater / room server
+        var remote = (c.type === 2 || c.type === 3) && can('remote'); // repeater / room server
         if (remote) { html += remotePanelHtml(); }
         showModal(c.name, html);
         if (remote) { initRemote({ pk: c.pk, name: c.name }); }
@@ -1618,7 +1625,7 @@
                     'repeatery mimo region je nepřepošlou. Platí jen pro odeslání, příjem se nemění.</div>' +
                     '<div class="d-flex flex-wrap align-items-center gap-2 mb-1">' +
                     '<select class="form-select form-select-sm w-auto" id="cs-scope-mode">' +
-                    '<option value="">Výchozí companionu</option><option value="*">Bez regionu (všude)</option><option value="r">Region…</option></select>' +
+                    '<option value="">Výchozí companionu</option>' + (can('region_none') ? '<option value="*">Bez regionu (všude)</option>' : '') + '<option value="r">Region…</option></select>' +
                     '<div class="input-group input-group-sm w-auto d-none" id="cs-scope-box"><span class="input-group-text">#</span>' +
                     '<input type="text" class="form-control" id="cs-scope" list="cs-scope-list" maxlength="30" placeholder="např. cz" autocomplete="off" style="max-width:10rem">' +
                     '<button class="btn btn-outline-primary" type="button" id="cs-scope-save">Uložit</button></div>' +
@@ -1753,7 +1760,7 @@
             '<div id="path-current">' + pathSummary(c) + '</div>' +
             '<div class="d-flex flex-wrap gap-2 mt-3">' +
             '<button type="button" class="btn btn-sm btn-outline-danger" id="path-reset"><i class="bi bi-arrow-counterclockwise me-1"></i>Resetovat cestu</button>' +
-            '<button type="button" class="btn btn-sm btn-outline-primary" id="path-discover"><i class="bi bi-search me-1"></i>Zjistit cestu</button>' +
+            (can('path_discover') ? '<button type="button" class="btn btn-sm btn-outline-primary" id="path-discover"><i class="bi bi-search me-1"></i>Zjistit cestu</button>' : '') +
             traceButton(c.pk) + '</div>' +
             '<div class="small text-body-secondary mt-2">Reset smaže uloženou cestu, další zpráva půjde floodem a cesta se naučí znovu. ' +
             '„Zjistit cestu“ pošle dotaz floodem a počká na odpověď (může trvat až desítky sekund).</div>');
@@ -1823,8 +1830,8 @@
         }
         api('discovered').done(function (r) {
             if (!r.discovered.available) {
-                $('#ac-list').html('<div class="text-body-secondary p-2">Seznam zatím není k dispozici – worker ho načítá z Home Assistantu ' +
-                    '(vyžaduje režim Contact Discovery „entity“ v integraci MeshCore).</div>');
+                $('#ac-list').html('<div class="text-body-secondary p-2">Seznam zatím není k dispozici – worker ho načítá z ' + (isSrv()
+                    ? 'meshcore-serveru.</div>' : 'Home Assistantu (vyžaduje režim Contact Discovery „entity“ v integraci MeshCore).</div>'));
                 return;
             }
             nodes = r.discovered.nodes;
@@ -1857,6 +1864,7 @@
             if ((m = CARD_RE.exec(v))) { showCard(m[1].toLowerCase(), +m[2], m[3]); return; }
             var hex = v.replace(/\s+/g, '').toLowerCase();
             if (/^[0-9a-f]{100,}$/.test(hex)) {
+                if (!can('contact_import')) { $('#ac-error').text('Import exportované karty meshcore-server zatím neumí – vlož vizitku nebo veřejný klíč.'); return; }
                 var $b = $('#ac-go').prop('disabled', true);
                 api('contact_import', { card: hex }, 'POST').done(function (r) {
                     setConversations(r.conversations);
@@ -1878,6 +1886,7 @@
     var roomAuto = {};
 
     function roomLogin(c, pw, $out) {
+        if (!can('room_login')) { return $.Deferred().resolve({}).promise(); }
         if ($out) { $out.html('<span class="text-body-secondary"><span class="spinner-border spinner-border-sm me-1"></span>Přihlašuji se do room serveru…</span>'); }
         return api('room_login', { pk: c.pk, password: pw }, 'POST').done(function (r) {
             var msg = 'Přihlášen do „' + c.name + '“' + (r.admin === true ? ' jako admin' : r.admin === false ? ' jako host' : '') +
@@ -2141,7 +2150,7 @@
             return;
         }
         if (!D.available) {
-            $l.append('<div class="text-center text-body-secondary small p-4">Stav zařízení zatím není k dispozici.<br>Worker ho načítá z Home Assistantu – zkontroluj, že běží aktuální verze.</div>');
+            $l.append('<div class="text-center text-body-secondary small p-4">Stav zařízení zatím není k dispozici.<br>Worker ho načítá z ' + backendName() + ' – zkontroluj, že běží aktuální verze.</div>');
             return;
         }
         var q = norm($('#search').val().trim());
@@ -2181,7 +2190,8 @@
         $l.append('<div class="dev-section px-3 pt-3 pb-1">Sledovaná zařízení' +
             (D.devices.length ? ' (' + D.devices.filter(function (d) { return d.online; }).length + '/' + D.devices.length + ' online)' : '') + '</div>');
         if (!D.devices.length) {
-            $l.append('<div class="text-body-secondary small px-3 pb-3">Žádná. Sledování se zapíná v HA: MeshCore → Konfigurovat → Add Repeater Station / Add Tracked Client.</div>');
+            $l.append('<div class="text-body-secondary small px-3 pb-3">' + (isSrv() ? 'Sledování uzlů meshcore-server zatím neumí.'
+                : 'Žádná. Sledování se zapíná v HA: MeshCore → Konfigurovat → Add Repeater Station / Add Tracked Client.') + '</div>');
         }
         devs.forEach(function (d) {
             var state = d.online === true ? 'online' : d.online === false ? 'offline' : 'neznámý stav';
@@ -3050,10 +3060,10 @@
             '<i class="bi bi-person-plus me-1"></i>Přidat do kontaktů</button>' +
             '<span class="small text-body-secondary" id="rn-add-note">Uzel není v kontaktech companionu.</span></div>' +
             (n.type === 2 || n.type === 3 ? '<div class="small text-body-secondary">Při první akci níže se do kontaktů přidá automaticky (bez toho se k němu nejde přihlásit).</div>' : '') +
-            (n.type === 2 || n.type === 3 ? remotePanelHtml() : '') +
+            ((n.type === 2 || n.type === 3) && can('remote') ? remotePanelHtml() : '') +
             '<div class="d-grid mt-3"><button type="button" class="btn btn-outline-secondary btn-sm" id="rn-back"><i class="bi bi-arrow-left me-1"></i>Zpět na slyšené uzly</button></div>';
         showModal(n.name || n.pk12, html);
-        if (n.type === 2 || n.type === 3) {
+        if ((n.type === 2 || n.type === 3) && can('remote')) {
             initRemote({ pk: n.pk12, name: n.name || n.pk12 }, function () {
                 api('conversations').done(function (r) { setConversations(r.conversations); });
             });
@@ -3121,7 +3131,7 @@
             other.forEach(function (k) { html += row(d.other[k].name || k, esc(fmtSensor(k, d.other[k]))); });
             html += '</table></details>';
         }
-        var remote = kind === 'd' && d.type !== 1; // repeater, room server, senzor (klienti CLI nemají)
+        var remote = kind === 'd' && d.type !== 1 && can('remote'); // repeater, room server, senzor (klienti CLI nemají)
         if (remote) { html += remotePanelHtml(); }
         if (d.conv && S.convs[d.conv]) {
             html += '<div class="d-grid mt-3"><button class="btn btn-primary" id="dev-open-chat"><i class="bi bi-chat-dots me-1"></i> Otevřít chat</button></div>';
@@ -3518,6 +3528,7 @@
         S.cursor = r.cursor;
         S.maxLen = r.max_len;
         S.selfName = r.self_name || null;
+        S.caps = r.caps || {};
         S.settings = r.settings || S.settings;
         S.patterns = r.patterns || [];
         $('#tabs .nav-link').removeClass('active').filter('[data-tab="' + S.tab + '"]').addClass('active');

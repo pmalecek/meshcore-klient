@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS channels (
 
 CREATE TABLE IF NOT EXISTS messages (
     id              BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    srv_id          BIGINT UNSIGNED NULL COMMENT 'ID zprávy v meshcore-serveru',
     entry_id        VARCHAR(64)   NULL,
     entity_id       VARCHAR(128)  NULL,
     conv_key        VARCHAR(20)   NOT NULL COMMENT 'd:<pubkey_prefix> nebo c:<channel_idx>',
@@ -85,6 +86,7 @@ CREATE TABLE IF NOT EXISTS messages (
     created_at      DATETIME(6)   NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     updated_at      DATETIME(6)   NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
     UNIQUE KEY uq_messages_send_id (send_id),
+    UNIQUE KEY uq_messages_srv_id (srv_id),
     KEY ix_messages_conv (conv_key, id),
     KEY ix_messages_updated (updated_at),
     KEY ix_messages_match (entity_id, msg_ts),

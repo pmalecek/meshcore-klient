@@ -8,6 +8,19 @@ $config = [
         'user'     => '',
         'password' => '',
     ],
+    // Odkud klient bere data: 'ha' = Home Assistant (integrace meshcore-ha), 'server' = meshcore-server
+    'backend' => 'ha',
+    'server' => [
+        // Adresa meshcore-serveru (bez lomítka na konci), např. http://192.168.1.50:8080
+        'url'        => 'http://127.0.0.1:8080',
+        // API token (meshcore-server token create meshcore-klient --scope admin; write stačí bez správy nodu)
+        'token'      => '',
+        // Čtenář pro nepřečtené zprávy na serveru (stejný na všech zařízeních = počty se sdílí)
+        'reader'     => 'klient',
+        // Kolik dní historie stáhnout při první synchronizaci (0 = vše)
+        'backfill_days' => 30,
+        'verify_tls' => true,
+    ],
     'ha' => [
         // Adresa Home Assistantu (bez lomítka na konci)
         'url'      => 'http://homeassistant.local:8123',
