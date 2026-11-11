@@ -1885,10 +1885,10 @@
     function roomPwKey(pk) { return 'mc.roompw.' + pk; }
     var roomAuto = {};
 
-    function roomLogin(c, pw, $out) {
+    function roomLogin(c, pw, $out, remember) {
         if (!can('room_login')) { return $.Deferred().resolve({}).promise(); }
         if ($out) { $out.html('<span class="text-body-secondary"><span class="spinner-border spinner-border-sm me-1"></span>Přihlašuji se do room serveru…</span>'); }
-        return api('room_login', { pk: c.pk, password: pw }, 'POST').done(function (r) {
+        return api('room_login', { pk: c.pk, password: pw, remember: remember !== false }, 'POST').done(function (r) {
             var msg = 'Přihlášen do „' + c.name + '“' + (r.admin === true ? ' jako admin' : r.admin === false ? ' jako host' : '') +
                 '. Příspěvky, které jsi ještě neviděl, server pošle během několika sekund.';
             if ($out) { $out.html('<span class="text-success"><i class="bi bi-check-circle me-1"></i>' + esc(msg) + '</span>'); } else { toast(msg, 'success'); }
@@ -1906,14 +1906,21 @@
             'a dokud jsi přihlášen, posílá i nové. Psát do něj můžeš běžně v tomto chatu.</p>' +
             '<div class="input-group mb-2"><span class="input-group-text"><i class="bi bi-key"></i></span>' +
             '<input type="text" class="form-control rc-secret" id="room-pw" placeholder="Heslo (prázdné = host, pokud to server povoluje)" autocomplete="off" data-lpignore="true" data-1p-ignore></div>' +
-            '<div class="form-check small mb-3"><input class="form-check-input" type="checkbox" id="room-remember"' + (saved !== null ? ' checked' : '') + '>' +
-            '<label class="form-check-label" for="room-remember">Pamatovat heslo do zavření karty a přihlašovat se automaticky při otevření chatu</label></div>' +
+            (isSrv()
+                ? '<div class="form-check small mb-3"><input class="form-check-input" type="checkbox" id="room-remember" checked>' +
+                  '<label class="form-check-label" for="room-remember">Uložit heslo na meshcore-serveru – po výpadku nebo restartu se přihlásí sám</label></div>'
+                : '<div class="form-check small mb-3"><input class="form-check-input" type="checkbox" id="room-remember"' + (saved !== null ? ' checked' : '') + '>' +
+                  '<label class="form-check-label" for="room-remember">Pamatovat heslo do zavření karty a přihlašovat se automaticky při otevření chatu</label></div>') +
             '<button type="button" class="btn btn-primary w-100" id="room-go"><i class="bi bi-box-arrow-in-right me-1"></i>Přihlásit</button>' +
             '<div class="small mt-2" id="room-out"></div>';
         showModal('Room server ' + c.name, html);
         if (saved !== null) { $('#room-pw').val(saved); }
         $('#room-go').on('click', function () {
             var pw = $('#room-pw').val(), $b = $(this).prop('disabled', true);
+            if (isSrv()) {
+                roomLogin(c, pw, $('#room-out'), $('#room-remember').prop('checked')).always(function () { $b.prop('disabled', false); });
+                return;
+            }
             try {
                 if ($('#room-remember').prop('checked')) { sessionStorage.setItem(roomPwKey(c.pk), pw); } else { sessionStorage.removeItem(roomPwKey(c.pk)); }
             } catch (e) { /* nedostupné */ }
@@ -1924,7 +1931,8 @@
     // při otevření chatu s room serverem se zapamatovaným heslem se přihlásit automaticky (jednou za načtení stránky)
     function maybeRoomAutoLogin(conv) {
         var c = S.convs[conv];
-        if (!c || c.kind !== 'contact' || c.type !== 3 || roomAuto[c.pk]) { return; }
+        // s meshcore-serverem se k roomu přihlašuje server sám (uložené heslo)
+        if (!c || c.kind !== 'contact' || c.type !== 3 || roomAuto[c.pk] || isSrv()) { return; }
         var saved = null;
         try { saved = sessionStorage.getItem(roomPwKey(c.pk)); } catch (e) { /* nedostupné */ }
         if (saved === null) { return; }

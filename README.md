@@ -198,9 +198,12 @@ Pak spusť migraci `sql/migrations/014_meshcore_server.sql` (u nové instalace n
   i počet observerů z analyzeru.
 - Kontakty v companionu jsou v záložce Kontakty, ostatní uzly, které server slyšel, mezi slyšenými uzly.
   Plný companion uvolňuje místo sám server.
-- **Zatím chybí:** vzdálená správa repeaterů, přihlášení do room serveru (a autoři příspěvků v něm), trace,
-  zjištění cesty, import exportované karty kontaktu, sledování uzlů se senzory a „bez regionu“ u kanálu.
-  Rozhraní je v tomto režimu skryje. Klíč kanálu ke sdílení vydá server jen tokenu s oprávněním `admin`.
+- **Room servery a repeatery** (meshcore-server 0.11+): přihlášení do roomu (heslo si může uložit server
+  a po výpadku se přihlásí sám), příspěvky se jmény autorů, stav uzlu a příkazy (verze, čas, jméno, poloha,
+  advert, restart). Příkazy na uzlu vyžadují token s oprávněním `admin`.
+- **Zatím chybí:** trace, zjištění cesty, import exportované karty kontaktu, sledování uzlů se senzory
+  a „bez regionu“ u kanálu. Rozhraní je v tomto režimu skryje. Klíč kanálu ke sdílení vydá server
+  jen tokenu s oprávněním `admin`.
 
 ## Struktura
 

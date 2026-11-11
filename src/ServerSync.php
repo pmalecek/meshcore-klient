@@ -10,7 +10,8 @@ namespace MeshClient;
  * Zprávy se párují přes messages.srv_id. Stav companionu, slyšené uzly apod. se ukládají do worker_state
  * ve stejném tvaru jako snapshot z Home Assistantu (ha_snapshot), takže je Api zobrazí bez úprav.
  *
- * Mapování konverzací: server dm:<prefix> / ch:<n>  <->  klient d:<prefix> / c:<n>.
+ * Mapování konverzací: server dm:<prefix> / room:<prefix> / ch:<n>  <->  klient d:<prefix> / c:<n>
+ * (room server je v klientu běžná konverzace s kontaktem typu 3; autor příspěvku je v author_pk).
  */
 final class ServerSync
 {
@@ -243,7 +244,7 @@ final class ServerSync
             throw $e;
         }
         $id = $this->db->lastId();
-        if (!$isCh && !$out && !empty($m['sender_name'])) {
+        if (!$isCh && !$out && !empty($m['sender_name']) && ($m['kind'] ?? '') !== 'room') {
             $this->db->query('INSERT INTO contacts (pubkey_prefix, name) VALUES (?, ?) ON DUPLICATE KEY UPDATE name = COALESCE(contacts.name, VALUES(name))',
                 [$pk, mb_substr((string) $m['sender_name'], 0, 100)]);
         }
@@ -258,9 +259,9 @@ final class ServerSync
                                    mixed $sender, ?array $rx, string $status, ?int $ack): void
     {
         $this->db->query(
-            'INSERT INTO messages (srv_id, conv_key, direction, message_type, pubkey_prefix, channel_idx, sender_name, body,
+            'INSERT INTO messages (srv_id, conv_key, direction, message_type, pubkey_prefix, channel_idx, sender_name, author_pk, body,
                                    hop_count, snr, rssi, status, repeater_count, ack_received, dm_attempts, dm_flood, error, rx_log, msg_ts)
-             VALUES (:srv, :conv, :dir, :type, :pk, :idx, :sender, :body, :hops, :snr, :rssi, :status, :rc, :ack, :att, :flood, :err, :rx, :ts)',
+             VALUES (:srv, :conv, :dir, :type, :pk, :idx, :sender, :author, :body, :hops, :snr, :rssi, :status, :rc, :ack, :att, :flood, :err, :rx, :ts)',
             [
                 'srv'    => $srvId,
                 'conv'   => $conv,
@@ -269,6 +270,7 @@ final class ServerSync
                 'pk'     => $pk,
                 'idx'    => $idx,
                 'sender' => is_string($sender) && $sender !== '' ? mb_substr($sender, 0, 100) : null,
+                'author' => !$out && preg_match('/^[0-9a-f]{2,16}$/i', (string) ($m['author_prefix'] ?? '')) ? strtolower((string) $m['author_prefix']) : null,
                 'body'   => (string) ($m['text'] ?? ''),
                 'hops'   => !$out && isset($m['path_len']) ? (int) $m['path_len'] : null,
                 'snr'    => isset($m['snr']) ? (float) $m['snr'] : null,
@@ -354,7 +356,7 @@ final class ServerSync
     /** Přečteno v klientu -> poslat na server (po poslední zprávu se srv_id). */
     public static function pushRead(McServer $srv, Db $db, string $reader, string $conv, int $lastId): void
     {
-        $srvConv = self::serverConv($conv);
+        $srvConv = self::serverConv($conv, $db);
         $srvId = (int) $db->value('SELECT MAX(srv_id) FROM messages WHERE conv_key = ? AND id <= ?', [$conv, $lastId]);
         if ($srvConv === null || $srvId <= 0) {
             return;
@@ -467,19 +469,21 @@ final class ServerSync
         if (preg_match('/^ch:(\d+)$/', $srvConv, $m)) {
             return 'c:' . (int) $m[1];
         }
-        if (preg_match('/^dm:([0-9a-f]{12})/i', $srvConv, $m)) {
+        if (preg_match('/^(?:dm|room):([0-9a-f]{12})/i', $srvConv, $m)) {
             return 'd:' . strtolower($m[1]);
         }
         return null;
     }
 
-    public static function serverConv(string $conv): ?string
+    /** Konverzace klienta -> server; u room serveru (kontakt typu 3) room:<prefix>. */
+    public static function serverConv(string $conv, ?Db $db = null): ?string
     {
         if (preg_match('/^c:(\d+)$/', $conv, $m)) {
             return 'ch:' . (int) $m[1];
         }
         if (preg_match('/^d:([0-9a-f]{12})$/', $conv, $m)) {
-            return 'dm:' . $m[1];
+            $room = $db !== null && (int) $db->value('SELECT type FROM contacts WHERE pubkey_prefix = ?', [$m[1]]) === 3;
+            return ($room ? 'room:' : 'dm:') . $m[1];
         }
         return null;
     }

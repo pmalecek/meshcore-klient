@@ -19,9 +19,6 @@ final class ServerApi
     private const UNSUPPORTED = [
         'POST contact_import'  => 'Import vizitky',
         'POST path_discover'   => 'Zjištění cesty',
-        'POST room_login'      => 'Přihlášení do room serveru',
-        'POST remote_cmd'      => 'Vzdálená správa',
-        'POST remote_status'   => 'Stav vzdáleného uzlu',
         'POST trace'           => 'Trace',
         'GET history'          => 'Historie senzorů',
     ];
@@ -40,7 +37,7 @@ final class ServerApi
     public static function capabilities(): array
     {
         return [
-            'backend' => 'server', 'remote' => false, 'room_login' => false, 'trace' => false,
+            'backend' => 'server', 'remote' => true, 'room_login' => true, 'trace' => false,
             'path_discover' => false, 'contact_import' => false, 'ha_devices' => false, 'traffic' => false,
             'region_none' => false,
         ];
@@ -66,6 +63,9 @@ final class ServerApi
                 'POST conv_settings'   => $this->convSettings($input),
                 'POST read'            => $this->read($input),
                 'POST send'            => $this->send($input),
+                'POST room_login'      => $this->roomLogin($input),
+                'POST remote_status'   => $this->remoteStatus($input),
+                'POST remote_cmd'      => $this->remoteCmd($input),
                 default                => null,
             };
         } catch (McServerException $e) {
@@ -290,6 +290,94 @@ final class ServerApi
         // zprávu uložit hned (worker ji dostane i přes WebSocket – podle srv_id se nezdvojí)
         $id = is_array($r['message'] ?? null) ? $this->sync()->upsertMessage($r['message']) : null;
         return [['ok' => true, 'id' => $id], 200];
+    }
+
+    // ------------------------------------------------------------------ room servery a vzdálená správa
+
+    /**
+     * Přihlášení k room serveru / repeateru přes meshcore-server (čeká na odpověď uzlu).
+     * Prázdné heslo = host. $remember: server si heslo uloží a po výpadku se přihlásí sám.
+     * @return array{pk:string, admin:?bool, added:bool}
+     */
+    private function login(string $pk, string $pw, bool $remember): array
+    {
+        $pk12 = self::pk12($pk);
+        if (strlen($pw) > 15 || preg_match('/[\x00-\x1f]/', $pw)) {
+            throw new InvalidArgumentException('Heslo může mít nejvýš 15 bajtů');
+        }
+        $onDevice = (bool) $this->db->value('SELECT 1 FROM contacts WHERE pubkey_prefix = ? AND public_key IS NOT NULL', [$pk12]);
+        try {
+            $r = $this->srv->post('/contacts/' . $pk12 . '/login', ['password' => $pw, 'remember' => $remember], 120);
+        } catch (McServerException $e) {
+            if ($e->getCode() === 404) {
+                throw new InvalidArgumentException('Uzel zatím server neslyšel – přihlásit se jde až po jeho advertu.');
+            }
+            if ($e->getCode() === 409 || $e->getCode() === 400) {
+                $msg = $e->getMessage();
+                throw new InvalidArgumentException(str_contains($msg, 'neodpověděl')
+                    ? 'Uzel na přihlášení neodpověděl – je mimo dosah, nebo je síť vytížená.'
+                    : (str_contains($msg, 'heslo') ? 'Nesprávné heslo.' . ($pw === '' ? ' Bez hesla to projde jen u uzlu, který povoluje hosty.' : '')
+                        : 'Přihlášení k uzlu se nezdařilo: ' . $msg));
+            }
+            throw $e;
+        }
+        if (!$onDevice) {
+            $this->sync()->syncContacts(); // server uzel kvůli přihlášení přidal do companionu
+        }
+        return ['pk' => $pk12, 'admin' => isset($r['is_admin']) ? (bool) $r['is_admin'] : null, 'added' => !$onDevice];
+    }
+
+    private function roomLogin(array $input): array
+    {
+        // heslo si uloží server – po restartu nebo výpadku companionu se k roomu přihlásí sám
+        $rl = $this->login((string) ($input['pk'] ?? ''), (string) ($input['password'] ?? ''), ($input['remember'] ?? true) !== false);
+        return [['ok' => true, 'admin' => $rl['admin'], 'added' => $rl['added']], 200];
+    }
+
+    private function remoteStatus(array $input): array
+    {
+        set_time_limit(240);
+        $rl = $this->login((string) ($input['pk'] ?? ''), (string) ($input['password'] ?? ''), false);
+        try {
+            $r = $this->srv->post('/contacts/' . $rl['pk'] . '/status', null, 120);
+        } catch (McServerException $e) {
+            return [['error' => str_contains($e->getMessage(), 'neodpověděl') || $e->getCode() === 504
+                ? 'Uzel na žádost o stav neodpověděl (mimo dosah nebo vytížená síť).'
+                : 'Stav se nepodařilo získat: ' . $e->getMessage(), 'admin' => $rl['admin'], 'added' => $rl['added']], 400];
+        }
+        $status = array_intersect_key((array) ($r['status'] ?? []), array_flip(['bat', 'tx_queue_len', 'noise_floor', 'last_rssi', 'last_snr',
+            'nb_recv', 'nb_sent', 'airtime', 'rx_airtime', 'uptime', 'sent_flood', 'sent_direct', 'recv_flood', 'recv_direct', 'full_evts',
+            'direct_dups', 'flood_dups', 'recv_errors']));
+        return [['ok' => true, 'status' => $status, 'admin' => $rl['admin'], 'added' => $rl['added'], 'at' => gmdate('c')], 200];
+    }
+
+    private function remoteCmd(array $input): array
+    {
+        set_time_limit(240);
+        $cmd = (string) ($input['cmd'] ?? '');
+        // povolené příkazy a jejich CLI řádky jsou společné s HA režimem (public/api.php)
+        $plan = \remoteCommands($cmd, $input['arg'] ?? null);
+        $rl = $this->login((string) ($input['pk'] ?? ''), (string) ($input['password'] ?? ''), false);
+        $replies = [];
+        foreach ($plan['cli'] as $line) {
+            try {
+                $r = $this->srv->post('/contacts/' . $rl['pk'] . '/cli', ['command' => $line], 120);
+                $t = trim((string) ($r['reply'] ?? ''));
+                if ($t !== '') {
+                    $replies[] = $t;
+                }
+            } catch (McServerException $e) {
+                if ($cmd === 'reboot') {
+                    break; // restartovaný uzel už neodpoví
+                }
+                if (in_array($e->getCode(), [401, 403], true)) {
+                    throw new InvalidArgumentException('Příkazy na uzlu vyžadují token meshcore-serveru s oprávněním admin.');
+                }
+                return [['error' => 'Příkaz se nepodařilo provést: ' . $e->getMessage(), 'admin' => $rl['admin'], 'added' => $rl['added']], 400];
+            }
+        }
+        return [['ok' => true, 'what' => $plan['what'], 'admin' => $rl['admin'], 'added' => $rl['added'],
+                 'reply' => $replies ? implode(' · ', $replies) : null], 200];
     }
 
     // ------------------------------------------------------------------ pomocné
