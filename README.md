@@ -35,6 +35,7 @@ Rozhraní je v češtině.
   - MQTT brokery, companion a sledované uzly z HA s grafy senzorů.
   - Verze firmwaru companionu.
 - **Kanály:** přidání (hashtagový, Public, soukromý s klíčem i nový), odebrání a sdílení klíče.
+  U každého kanálu jde nastavit region (flood scope), do kterého se zprávy odesílají.
 - **Vzhled:**
   - Světlý, tmavý, podle systému nebo podle slunce.
   - Pozadí chatů (barva, vzor, vlastní obrázek).
@@ -149,7 +150,7 @@ Každý kód TOTP jde použít jen jednou. Po 5 neúspěšných pokusech z jedn�
 ```bash
 git pull
 # nové migrace v sql/migrations/ spusť jen jednou, v pořadí čísel, např.:
-mariadb meshcore < sql/migrations/012_traffic_budget.sql
+mariadb meshcore < sql/migrations/013_channel_scope.sql
 systemctl restart meshcore-worker
 ```
 

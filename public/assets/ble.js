@@ -642,12 +642,39 @@
     }
 
 
+    // Region (flood scope) kanálu: klíč = prvních 16 B sha256("#název"); '*' = vynutit bez regionu.
+    // Nastaví se jen pro jedno odeslání a pak se vrátí výchozí companionu (jako v integraci HA).
+    function scopeFrame(scope) {
+        if (scope === '*') { return Promise.resolve(new Uint8Array([C().CommandCodes.SetFloodScope, 1])); }
+        if (!scope) { var z = new Uint8Array(18); z[0] = C().CommandCodes.SetFloodScope; return Promise.resolve(z); } // nulový klíč = výchozí
+        return crypto.subtle.digest('SHA-256', new TextEncoder().encode('#' + scope)).then(function (h) {
+            var f = new Uint8Array(18);
+            f[0] = C().CommandCodes.SetFloodScope; f[1] = 0; f.set(new Uint8Array(h).slice(0, 16), 2);
+            return f;
+        });
+    }
+    function setScope(c, scope) {
+        return scopeFrame(scope).then(function (f) {
+            return request(c, function () { return c.sendToRadioFrame(f); }, [C().ResponseCodes.Ok], [C().ResponseCodes.Err]);
+        });
+    }
+
     function sendChannel(m, idx) {
         var ts = Math.floor(m.ts / 1000);
+        var scope = ((D.settings.convs['c:' + idx] || {}).scope) || null;
         expectOutgoingChannel(m, idx, ts);
         return cmd(function (c) {
-            return request(c, function () { return c.sendCommandSendChannelTxtMsg(C().TxtTypes.Plain, idx, ts, m.body); },
-                [C().ResponseCodes.Ok], [C().ResponseCodes.Err]);
+            var send = function () {
+                return request(c, function () { return c.sendCommandSendChannelTxtMsg(C().TxtTypes.Plain, idx, ts, m.body); },
+                    [C().ResponseCodes.Ok], [C().ResponseCodes.Err]);
+            };
+            if (!scope) { return send(); }
+            return setScope(c, scope).catch(function () {
+                throw err('Companion nepodporuje region (flood scope) – aktualizuj firmware, nebo region u kanálu zruš.');
+            }).then(function () {
+                return send().then(function (r) { return setScope(c, null).catch(function () {}).then(function () { return r; }); },
+                    function (e) { return setScope(c, null).catch(function () {}).then(function () { throw e; }); });
+            });
         }).then(function () { m.status = 'sent'; saveMsg(m); scheduleHeard(m); });
     }
 
@@ -1274,12 +1301,18 @@
         },
         'POST conv_settings': function (p) {
             if (!validConv(p.conv)) { throw err('Neplatná konverzace'); }
-            var cs = Object.assign({ color: null, bg: null, fav: false, retention: null }, D.settings.convs[p.conv] || {});
+            var cs = Object.assign({ color: null, bg: null, fav: false, retention: null, scope: null }, D.settings.convs[p.conv] || {});
             if ('color' in p) { cs.color = p.color || null; }
             if ('bg' in p) { cs.bg = validBg(p.bg); }
             if ('fav' in p) { cs.fav = !!p.fav; }
+            if ('scope' in p) {
+                if (p.conv.charAt(0) !== 'c') { throw err('Region jde nastavit jen u kanálu'); }
+                var sc = String(p.scope == null ? '' : p.scope).trim().replace(/^#/, '');
+                if (sc && sc !== '*' && !/^[\p{L}\p{N}_.\-]{1,30}$/u.test(sc)) { throw err('Neplatný název regionu (písmena, číslice, - _ .)'); }
+                cs.scope = sc || null;
+            }
             if ('retention' in p) { cs.retention = p.retention === null || p.retention === '' ? null : Math.max(0, +p.retention); }
-            if (!cs.color && !cs.bg && !cs.fav && cs.retention == null) { delete D.settings.convs[p.conv]; } else { D.settings.convs[p.conv] = cs; }
+            if (!cs.color && !cs.bg && !cs.fav && cs.retention == null && !cs.scope) { delete D.settings.convs[p.conv]; } else { D.settings.convs[p.conv] = cs; }
             saveSettings();
             if ('retention' in p) { cleanup(); }
             return { settings: settingsOut() };

@@ -13,6 +13,7 @@ use MeshClient\DmSender;
 use MeshClient\HaTemplate;
 use MeshClient\MessageStore;
 use MeshClient\SendQueue;
+use MeshClient\Settings;
 use MeshClient\TrafficBudget;
 use MeshClient\WebSocketClient;
 
@@ -215,6 +216,9 @@ while ($running) {
                     $data = ['message' => (string) $q['body'], 'channel_idx' => (int) $q['channel_idx']];
                     if (!empty($cfg['ha']['entry_id'])) {
                         $data['entry_id'] = $cfg['ha']['entry_id'];
+                    }
+                    if (($scope = Settings::scopeFor(db(), 'c:' . (int) $q['channel_idx'])) !== null) {
+                        $data['scope'] = $scope;
                     }
                     $ws->sendJson(['id' => $rid, 'type' => 'call_service', 'domain' => 'meshcore', 'service' => 'send_channel_message', 'service_data' => $data]);
                     $pending[$rid] = 'sq:' . $q['msg_id'];

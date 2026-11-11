@@ -230,7 +230,7 @@ try {
             if (!Api::validConv($conv)) {
                 out(['error' => 'Neplatná konverzace'], 400);
             }
-            $settings->updateConv($conv, array_intersect_key($input, array_flip(['color', 'bg', 'fav', 'retention'])));
+            $settings->updateConv($conv, array_intersect_key($input, array_flip(['color', 'bg', 'fav', 'retention', 'scope'])));
             if (array_key_exists('retention', $input)) {
                 (new Retention(db()))->cleanup($settings->retention(), true);
             }
@@ -654,6 +654,10 @@ try {
             $data = ['message' => $text, 'channel_idx' => (int) $id];
             if (!empty($cfg['ha']['entry_id'])) {
                 $data['entry_id'] = $cfg['ha']['entry_id'];
+            }
+            // region kanálu (HA ho nastaví jen pro toto odeslání a hned vrátí výchozí)
+            if (($scope = Settings::scopeFor(db(), $conv)) !== null) {
+                $data['scope'] = $scope;
             }
             // limit provozu v integraci: zprávu zařadit do fronty, worker ji odešle po uvolnění
             $sq = new SendQueue(db());

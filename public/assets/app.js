@@ -98,6 +98,22 @@
     }
 
     function convSet(conv) { return S.settings.convs[conv] || {}; }
+
+    // Regiony známé z repeaterů (výchozí, povolené, přenášené) a z přijatých zpráv – nabídka v nastavení kanálu
+    function knownScopes() {
+        var cnt = {};
+        var add = function (x) { x = String(x || '').replace(/^#/, ''); if (x && x !== '*') { cnt[x] = (cnt[x] || 0) + 1; } };
+        Object.keys(S.convs).forEach(function (k) {
+            var sc = S.convs[k].scopes;
+            if (sc) { add(sc.default); [].concat(sc.configured || [], sc.transported || [], sc.declared || []).forEach(add); }
+        });
+        Object.keys(S.messages).forEach(function (k) { add(S.messages[k].scope); });
+        return Object.keys(cnt).sort(function (a, b) { return cnt[b] - cnt[a] || a.localeCompare(b); });
+    }
+    function scopeSetting(conv) {
+        var v = convSet(conv).scope;
+        return v ? (v === '*' ? 'bez regionu' : '#' + v) : '';
+    }
     function isFav(conv) { return !!convSet(conv).fav; }
     function avatarColor(conv) { return convSet(conv).color || hashColor(conv); }
 
@@ -365,7 +381,7 @@
         $('#chat-title').text(c.name);
         var sub;
         if (c.kind === 'channel') {
-            sub = 'Kanál #' + c.idx;
+            sub = 'Kanál #' + c.idx + (scopeSetting(c.conv) ? ' · 📍 odesílá se ' + scopeSetting(c.conv) : '');
         } else {
             sub = (TYPE_NAMES[c.type] || 'Kontakt') + (scopeLabel(c.scopes) ? ' · ' + scopeLabel(c.scopes) : '') + ' · ' + c.pk +
                 (c.last_advert ? ' · advert ' + fmtAgo(c.last_advert) : '');
@@ -1597,6 +1613,17 @@
                 '<select class="form-select form-select-sm w-auto" id="cs-retention">' + retentionOptions(cs.retention, true) + '</select></div>' +
                 '<button type="button" class="btn btn-sm btn-outline-danger" id="cs-clear"><i class="bi bi-trash me-1"></i>Smazat historii konverzace</button>' +
                 (c.kind === 'channel' ?
+                    '<h6 class="mt-4">Region pro odesílání</h6>' +
+                    '<div class="small text-body-secondary mb-2">Zprávy do tohoto kanálu se pošlou floodem omezeným na region (scope) – ' +
+                    'repeatery mimo region je nepřepošlou. Platí jen pro odeslání, příjem se nemění.</div>' +
+                    '<div class="d-flex flex-wrap align-items-center gap-2 mb-1">' +
+                    '<select class="form-select form-select-sm w-auto" id="cs-scope-mode">' +
+                    '<option value="">Výchozí companionu</option><option value="*">Bez regionu (všude)</option><option value="r">Region…</option></select>' +
+                    '<div class="input-group input-group-sm w-auto d-none" id="cs-scope-box"><span class="input-group-text">#</span>' +
+                    '<input type="text" class="form-control" id="cs-scope" list="cs-scope-list" maxlength="30" placeholder="např. cz" autocomplete="off" style="max-width:10rem">' +
+                    '<button class="btn btn-outline-primary" type="button" id="cs-scope-save">Uložit</button></div>' +
+                    '<datalist id="cs-scope-list">' + knownScopes().map(function (x) { return '<option value="' + esc(x) + '">'; }).join('') + '</datalist></div>' +
+                    '<div class="small text-body-secondary mb-3">Záleží na velikosti písmen. Region musí znát repeatery v okolí, jinak zpráva nedojde nikam.</div>' +
                     '<h6 class="mt-4">Kanál</h6><div class="small text-body-secondary mb-2">Slot ' + c.idx + ' v companionu.</div>' +
                     '<div class="d-flex flex-wrap gap-2"><button type="button" class="btn btn-sm btn-outline-secondary" id="cs-secret"><i class="bi bi-key me-1"></i>Zobrazit klíč pro sdílení</button>' +
                     '<button type="button" class="btn btn-sm btn-danger" id="cs-remove"><i class="bi bi-x-circle me-1"></i>Odebrat kanál</button></div>' +
@@ -1610,6 +1637,26 @@
                 });
             });
             $('#cs-clear').on('click', function () { clearConversation(conv); });
+            var curScope = cs.scope || '';
+            $('#cs-scope-mode').val(curScope === '' ? '' : curScope === '*' ? '*' : 'r');
+            $('#cs-scope').val(curScope && curScope !== '*' ? curScope : '');
+            $('#cs-scope-box').toggleClass('d-none', $('#cs-scope-mode').val() !== 'r');
+            var saveScope = function (v) {
+                saveConv(conv, { scope: v }).done(function () {
+                    toast(v ? 'Zprávy do kanálu se pošlou ' + (v === '*' ? 'bez regionu' : 'do regionu #' + String(v).replace(/^#/, '')) : 'Region: výchozí companionu', 'secondary');
+                });
+            };
+            $('#cs-scope-mode').on('change', function () {
+                $('#cs-scope-box').toggleClass('d-none', this.value !== 'r');
+                if (this.value === 'r') { $('#cs-scope').trigger('focus'); return; }
+                saveScope(this.value);
+            });
+            $('#cs-scope-save').on('click', function () {
+                var v = $.trim($('#cs-scope').val()).replace(/^#/, '');
+                if (!v) { toast('Zadej název regionu', 'warning'); return; }
+                saveScope(v);
+            });
+            $('#cs-scope').on('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); $('#cs-scope-save').trigger('click'); } });
             $('#cs-secret').on('click', function () {
                 var $b = $(this).prop('disabled', true);
                 api('channel_secret', { idx: c.idx }, 'POST').done(function (r) {

@@ -109,6 +109,7 @@ CREATE TABLE IF NOT EXISTS conv_settings (
     background  JSON         NULL COMMENT 'Pozadí chatu, NULL = výchozí',
     favorite    TINYINT(1)   NOT NULL DEFAULT 0,
     retention_days SMALLINT UNSIGNED NULL COMMENT 'NULL = výchozí, 0 = navždy, jinak počet dní',
+    scope       VARCHAR(32)  NULL COMMENT 'Region pro odesílání: NULL = výchozí companionu, * = bez regionu, jinak název (bez #)',
     updated_at  DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 

@@ -158,8 +158,8 @@
                 <button class="btn btn-sm btn-link text-body ms-1 px-2" id="btn-fav" aria-label="Oblíbené" title="Přidat do oblíbených">
                     <i class="bi bi-star fs-5"></i>
                 </button>
-                <button class="btn btn-sm btn-link text-body px-2" id="btn-conv-settings" aria-label="Nastavení chatu" title="Barva a pozadí">
-                    <i class="bi bi-palette fs-5"></i>
+                <button class="btn btn-sm btn-link text-body px-2" id="btn-conv-settings" aria-label="Nastavení chatu" title="Nastavení chatu (barva, pozadí, historie, region)">
+                    <i class="bi bi-gear fs-5"></i>
                 </button>
                 <button class="btn btn-sm btn-link text-body px-2 d-none" id="btn-room" aria-label="Room server" title="Přihlásit do room serveru">
                     <i class="bi bi-door-open fs-5"></i>

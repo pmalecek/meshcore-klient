@@ -22,12 +22,13 @@ final class Settings
     public function all(): array
     {
         $convs = [];
-        foreach ($this->db->all('SELECT conv_key, color, background, favorite, retention_days FROM conv_settings') as $r) {
+        foreach ($this->db->all('SELECT conv_key, color, background, favorite, retention_days, scope FROM conv_settings') as $r) {
             $convs[$r['conv_key']] = [
                 'color'     => $r['color'],
                 'bg'        => $r['background'] !== null ? json_decode($r['background'], true) : null,
                 'fav'       => (bool) $r['favorite'],
                 'retention' => $r['retention_days'] !== null ? (int) $r['retention_days'] : null,
+                'scope'     => $r['scope'],
             ];
         }
         $def = $this->db->value("SELECT v FROM app_settings WHERE k = 'default_bg'");
@@ -81,11 +82,44 @@ final class Settings
             $r = $data['retention'] === null || $data['retention'] === '' ? null : self::validDays($data['retention']);
             $this->db->query('UPDATE conv_settings SET retention_days = ? WHERE conv_key = ?', [$r, $conv]);
         }
+        if (array_key_exists('scope', $data)) {
+            if (!str_starts_with($conv, 'c:')) {
+                throw new InvalidArgumentException('Region jde nastavit jen u kanálu');
+            }
+            $this->db->query('UPDATE conv_settings SET scope = ? WHERE conv_key = ?', [self::normScope($data['scope']), $conv]);
+        }
         if (array_key_exists('fav', $data)) {
             $this->db->query('UPDATE conv_settings SET favorite = ? WHERE conv_key = ?', [$data['fav'] ? 1 : 0, $conv]);
         }
         // úklid prázdných záznamů
-        $this->db->query('DELETE FROM conv_settings WHERE conv_key = ? AND color IS NULL AND background IS NULL AND favorite = 0 AND retention_days IS NULL', [$conv]);
+        $this->db->query('DELETE FROM conv_settings WHERE conv_key = ? AND color IS NULL AND background IS NULL AND favorite = 0 AND retention_days IS NULL AND scope IS NULL', [$conv]);
+    }
+
+    /**
+     * Region kanálu: null = výchozí companionu, '*' = bez regionu, jinak název bez „#“
+     * (klíč regionu = prvních 16 B sha256("#název"), záleží na velikosti písmen).
+     */
+    public static function normScope(mixed $s): ?string
+    {
+        $s = trim((string) ($s ?? ''));
+        if ($s === '') {
+            return null;
+        }
+        if ($s === '*') {
+            return '*';
+        }
+        $s = ltrim($s, '#');
+        if (!preg_match('/^[\p{L}\p{N}_.\-]{1,30}$/u', $s)) {
+            throw new InvalidArgumentException('Neplatný název regionu (písmena, číslice, - _ .)');
+        }
+        return $s;
+    }
+
+    /** Region pro odeslání do konverzace (hodnota parametru scope služby send_channel_message), null = neposílat. */
+    public static function scopeFor(Db $db, string $conv): ?string
+    {
+        $s = $db->value('SELECT scope FROM conv_settings WHERE conv_key = ?', [$conv]);
+        return $s === null || $s === false || $s === '' ? null : ($s === '*' ? '*' : '#' . $s);
     }
 
     public function setDefaultBg(mixed $bg): void
