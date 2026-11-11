@@ -1,0 +1,6 @@
+.git
+.github
+config/config.local.php
+data
+*.md
+!README.md

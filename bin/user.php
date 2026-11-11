@@ -5,6 +5,7 @@ declare(strict_types=1);
  * Správa uživatelů z příkazové řádky.
  *
  *   php bin/user.php add <jmeno>      – vytvoří uživatele a vypíše TOTP pro aplikaci
+ *   php bin/user.php add <jmeno> --password=<heslo>  – navíc nastaví heslo (bez dotazu, pro instalátory)
  *   php bin/user.php reset <jmeno>    – vygeneruje nový TOTP klíč
  *   php bin/user.php passwd <jmeno>   – nastaví heslo (zeptá se na něj)
  *   php bin/user.php nopasswd <jmeno> – zruší heslo (přihlášení jen kódem)
@@ -22,6 +23,12 @@ if (PHP_SAPI !== 'cli') {
 
 $cmd  = $argv[1] ?? '';
 $name = $argv[2] ?? '';
+$optPassword = null;
+foreach (array_slice($argv, 3) as $a) {
+    if (str_starts_with($a, '--password=')) {
+        $optPassword = substr($a, 11);
+    }
+}
 $db   = db();
 $cfg  = app_config();
 
@@ -49,9 +56,20 @@ switch ($cmd) {
             exit("Uživatel '$name' už existuje. Použij 'reset'.\n");
         }
         $secret = Totp::generateSecret();
-        $db->query('INSERT INTO users (username, totp_secret) VALUES (?, ?)', [$name, $secret]);
-        echo "Uživatel '$name' vytvořen.\n";
-        showTotp($secret, $name, $cfg);
+        if ($optPassword !== null && mb_strlen($optPassword) < MeshClient\Auth::PASSWORD_MIN) {
+            exit('Heslo musí mít aspoň ' . MeshClient\Auth::PASSWORD_MIN . " znaků.\n");
+        }
+        $db->query('INSERT INTO users (username, totp_secret, password_hash, password_changed_at) VALUES (?, ?, ?, ?)', [
+            $name, $secret,
+            $optPassword !== null ? password_hash($optPassword, PASSWORD_DEFAULT) : null,
+            $optPassword !== null ? gmdate('Y-m-d H:i:s') : null,
+        ]);
+        echo "Uživatel '$name' vytvořen" . ($optPassword !== null ? ' (s heslem)' : '') . ".\n";
+        if ($optPassword === null) {
+            showTotp($secret, $name, $cfg);
+        } else {
+            echo "Přihlášení kódem z aplikace (TOTP) zapneš příkazem: php bin/user.php reset $name\n";
+        }
         break;
 
     case 'reset':

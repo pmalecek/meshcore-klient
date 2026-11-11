@@ -72,7 +72,21 @@ MeshCore companion ──Web Bluetooth── prohlížeč (/ble) ──(voliteln
 - **HTTPS:** nutné pro notifikace v prohlížeči, Web Bluetooth a PWA.
 - **Home Assistant** s integrací meshcore-ha a long-lived tokenem administrátora. Pro samotný režim `/ble` není potřeba.
 
-## Instalace
+## Instalace v Dockeru (nejjednodušší)
+
+Klient spolu s [meshcore-server](https://github.com/pmalecek/meshcore-server) a databází nainstaluje jeden příkaz,
+viz [meshcore-stack](https://github.com/pmalecek/meshcore-stack):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/pmalecek/meshcore-stack/main/install.sh | bash
+```
+
+Image klienta (`Dockerfile`) má tři role: `web` (výchozí), `worker` a `heard`. Nastavuje se proměnnými
+prostředí `MC_…` (`MC_DB_HOST`, `MC_DB_NAME`, `MC_DB_USER`, `MC_DB_PASSWORD`, `MC_BACKEND`, `MC_SERVER_URL`,
+`MC_SERVER_TOKEN`, `MC_HA_URL`, `MC_HA_TOKEN`, `MC_TIMEZONE`, `MC_NODE_NAME`…; ke každé lze použít i `…_FILE`).
+Mají přednost před `config.local.php`. Databáze se při startu založí nebo převede sama.
+
+## Instalace bez Dockeru
 
 ```bash
 # 1) soubory
@@ -106,7 +120,7 @@ journalctl -u meshcore-worker -f
 
 # 7) uživatel + TOTP (QR kód v terminálu: apt install qrencode)
 php bin/user.php add admin
-php bin/user.php passwd admin      # volitelně i heslo
+php bin/user.php passwd admin      # volitelně i heslo (neinteraktivně: add admin --password=…)
 
 # 8) web server – viz deploy/apache-vhost.conf.example
 a2enmod headers expires
@@ -151,12 +165,13 @@ Každý kód TOTP jde použít jen jednou. Po 5 neúspěšných pokusech z jedn�
 
 ```bash
 git pull
-# nové migrace v sql/migrations/ spusť jen jednou, v pořadí čísel, např.:
-mariadb meshcore < sql/migrations/014_meshcore_server.sql
+php bin/migrate.php            # spustí jen nové migrace (eviduje je v tabulce schema_migrations)
 systemctl restart meshcore-worker
 ```
 
-Při nové instalaci se migrace nespouští, `sql/schema.sql` už obsahuje všechno.
+`php bin/migrate.php` u starší instalace bez evidence poprvé projde všechny migrace (jsou psané tak, aby šly
+spustit opakovaně) a zaeviduje je. Na prázdné databázi nahraje `sql/schema.sql`. Ručně jde migrace spustit
+i postaru (`mariadb meshcore < sql/migrations/…`), jen se pak nezaevidují.
 
 ## Poznámky k Home Assistantu
 
@@ -208,9 +223,10 @@ Pak spusť migraci `sql/migrations/014_meshcore_server.sql` (u nové instalace n
 ## Struktura
 
 ```
-bin/        worker.php (služba), heard.php (timer), user.php (uživatelé), dedup.php
-config/     config.php (výchozí), config.local.php.example (vzor vlastní konfigurace)
+bin/        worker.php (služba), heard.php (timer), user.php (uživatelé), migrate.php (schéma DB), dedup.php
+config/     config.php (výchozí + proměnné MC_…), config.local.php.example (vzor vlastní konfigurace)
 deploy/     systemd unity, příklad Apache vhostu
+docker/     entrypoint a konfigurace Apache/PHP pro Dockerfile
 public/     web (DocumentRoot), ble/ (Bluetooth klient, PWA), assets/ (JS, CSS, knihovny)
 src/        PHP třídy
 sql/        schema.sql (nová instalace), migrations/ (aktualizace)

@@ -86,4 +86,45 @@ if (is_file($local)) {
     $config = array_replace_recursive($config, require $local);
 }
 
+// Proměnné prostředí MC_* (Docker, meshcore-stack) mají přednost před config.local.php.
+$env = static function (string $k): ?string {
+    $v = getenv($k);
+    if ($v === false || $v === '') {
+        $f = getenv($k . '_FILE'); // např. Docker secrets
+        $v = $f !== false && is_readable($f) ? trim((string) file_get_contents($f)) : null;
+    }
+    return $v === null || $v === '' ? null : $v;
+};
+$set = static function (array &$c, array $path, mixed $v): void {
+    if ($v === null) {
+        return;
+    }
+    $ref = &$c;
+    foreach ($path as $p) {
+        $ref = &$ref[$p];
+    }
+    $ref = $v;
+};
+$bool = static fn(?string $v): ?bool => $v === null ? null : in_array(strtolower($v), ['1', 'true', 'yes', 'on', 'ano'], true);
+if (($h = $env('MC_DB_HOST')) !== null) {
+    $config['database']['dsn'] = sprintf('mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4',
+        $h, (int) ($env('MC_DB_PORT') ?? 3306), $env('MC_DB_NAME') ?? 'meshcore');
+}
+$set($config, ['database', 'dsn'], $env('MC_DB_DSN'));
+$set($config, ['database', 'user'], $env('MC_DB_USER'));
+$set($config, ['database', 'password'], $env('MC_DB_PASSWORD'));
+$set($config, ['backend'], $env('MC_BACKEND'));
+$set($config, ['server', 'url'], $env('MC_SERVER_URL'));
+$set($config, ['server', 'token'], $env('MC_SERVER_TOKEN'));
+$set($config, ['server', 'reader'], $env('MC_SERVER_READER'));
+$set($config, ['server', 'backfill_days'], ($v = $env('MC_SERVER_BACKFILL_DAYS')) !== null ? (int) $v : null);
+$set($config, ['ha', 'url'], $env('MC_HA_URL'));
+$set($config, ['ha', 'token'], $env('MC_HA_TOKEN'));
+$set($config, ['analyzer', 'enabled'], $bool($env('MC_ANALYZER_ENABLED')));
+$set($config, ['analyzer', 'url'], $env('MC_ANALYZER_URL'));
+$set($config, ['analyzer', 'node_name'], $env('MC_NODE_NAME'));
+$set($config, ['app', 'timezone'], $env('MC_TIMEZONE'));
+$set($config, ['app', 'bg_dir'], $env('MC_BG_DIR'));
+unset($env, $set, $bool, $h, $v);
+
 return $config;
