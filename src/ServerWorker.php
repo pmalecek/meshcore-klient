@@ -40,6 +40,9 @@ final class ServerWorker
         $sc   = $this->cfg['server'];
         $sync = new ServerSync(db(), $srv, $this->store, (string) ($sc['reader'] ?? 'klient'));
         $delay = 1;
+        // oprava starších záznamů: 255 = směrovaná cesta, ne počet skoků
+        $this->db()->query('UPDATE messages SET hop_count = NULL, rx_log = NULL, repeater_count = 0
+            WHERE srv_id IS NOT NULL AND direction = \'in\' AND hop_count >= 255');
 
         while ($this->running) {
             $seq = $this->db()->value("SELECT v FROM worker_state WHERE k = 'srv_seq'");

@@ -272,7 +272,7 @@ final class ServerSync
                 'sender' => is_string($sender) && $sender !== '' ? mb_substr($sender, 0, 100) : null,
                 'author' => !$out && preg_match('/^[0-9a-f]{2,16}$/i', (string) ($m['author_prefix'] ?? '')) ? strtolower((string) $m['author_prefix']) : null,
                 'body'   => (string) ($m['text'] ?? ''),
-                'hops'   => !$out && isset($m['path_len']) ? (int) $m['path_len'] : null,
+                'hops'   => !$out ? self::hops($m) : null,
                 'snr'    => isset($m['snr']) ? (float) $m['snr'] : null,
                 'rssi'   => isset($m['rssi']) ? (int) $m['rssi'] : null,
                 'status' => $status,
@@ -431,12 +431,25 @@ final class ServerSync
     }
 
     /** Trasa příchozí zprávy ve tvaru rx_log z HA (jedna zachycená cesta). */
-    private static function rxLog(array $m): ?array
+    /**
+     * Počet skoků příchozí zprávy. 255 (0xFF) = zpráva přišla směrovanou cestou (direct routing) –
+     * počet skoků se v tom případě nepřenáší, takže ho neukazujeme (stejně jako HA a BLE režim).
+     */
+    private static function hops(array $m): ?int
     {
-        if (!isset($m['path_len']) || $m['path_len'] === null) {
+        if (!isset($m['path_len']) || !is_numeric($m['path_len'])) {
             return null;
         }
-        $len = (int) $m['path_len'];
+        $n = (int) $m['path_len'];
+        return $n < 0 || $n >= 255 ? null : ($n & 0x3F);
+    }
+
+    private static function rxLog(array $m): ?array
+    {
+        if (self::hops($m) === null) {
+            return null;
+        }
+        $len = (int) self::hops($m);
         $path = strtolower((string) ($m['path'] ?? ''));
         $size = $len > 0 && $path !== '' ? max(1, intdiv(strlen($path), 2 * $len)) : 1;
         return [[
