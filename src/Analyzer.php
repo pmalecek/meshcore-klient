@@ -465,33 +465,45 @@ final class Analyzer
 
     /**
      * Najde kanál v analyzeru a vrátí jeho identifikátor pro /api/channels/{hash}/messages.
-     * Porovnává bez ohledu na velikost písmen a úvodní '#'. Null = analyzer kanál nezná.
+     * Nejdřív přesná shoda názvu (bez ohledu na velikost písmen) – „Public“ a „#public“ jsou dva
+     * různé kanály. Bez přesné shody se porovná i bez úvodního '#'; při víc kandidátech vyhraje
+     * kanál s nejvíc zprávami. Null = analyzer kanál nezná.
      */
     private function analyzerChannel(string $name): ?string
     {
         if ($this->channelsCache === null) {
             $data = $this->get('/api/channels');
             $list = isset($data['channels']) && is_array($data['channels']) ? $data['channels'] : $data;
-            $this->channelsCache = [];
+            $exact = [];
+            $loose = [];
+            $put = static function (array &$map, string $key, string $id, int $count): void {
+                if (!isset($map[$key]) || $count > $map[$key][1]) {
+                    $map[$key] = [$id, $count];
+                }
+            };
             foreach ($list as $c) {
                 if (!is_array($c)) {
                     continue;
                 }
                 $id = (string) ($c['hash'] ?? $c['name'] ?? '');
-                if ($id !== '') {
-                    $this->channelsCache[self::normChannel($id)] = $id;
-                    if (isset($c['name'])) {
-                        $this->channelsCache[self::normChannel((string) $c['name'])] = $id;
-                    }
+                if ($id === '') {
+                    continue;
+                }
+                $count = (int) ($c['messageCount'] ?? 0);
+                foreach (array_unique([$id, (string) ($c['name'] ?? $id)]) as $n) {
+                    $put($exact, mb_strtolower(trim($n)), $id, $count);
+                    $put($loose, self::normChannel($n), $id, $count);
                 }
             }
-            if (!$this->channelsCache) {
+            if (!$exact) {
                 // prázdný seznam = problém na straně analyzeru, ne soukromý kanál
-                $this->channelsCache = null;
                 throw new RuntimeException('Analyzer nevrátil seznam kanálů');
             }
+            $this->channelsCache = ['exact' => $exact, 'loose' => $loose];
         }
-        return $this->channelsCache[self::normChannel($name)] ?? null;
+        return $this->channelsCache['exact'][mb_strtolower(trim($name))][0]
+            ?? $this->channelsCache['loose'][self::normChannel($name)][0]
+            ?? null;
     }
 
     private static function normChannel(string $s): string
