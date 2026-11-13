@@ -753,6 +753,14 @@
             '<div class="text-body-secondary small"><span class="spinner-border spinner-border-sm me-1"></span> Načítám…</div></div>';
     }
 
+    // Detail odchozí zprávy odeslané vícekrát: který pokus ukazuje sekce „Zachyceno observery“
+    var heardSel = { root: null, list: [] };
+
+    function attemptLabel(m) {
+        var i = heardSel.list.findIndex(function (c) { return c.id === m.id; });
+        return i >= 0 && heardSel.list.length > 1 ? ' – ' + (i + 1) + '. pokus' : (m.group && m.group.last ? ' – 1. pokus' : '');
+    }
+
     function renderHeard(m, observers, base) {
         var h = m.heard || {};
         var $w = $('#heard-wrap');
@@ -769,7 +777,7 @@
             case 'error': summary = 'Analyzer se nepodařilo kontaktovat.'; break;
             default: summary = 'Kontrola proběhne pár sekund po odeslání.';
         }
-        var html = '<h6>Zachyceno observery' + (m.group && m.group.last ? ' – 1. pokus' : '') +
+        var html = '<h6>Zachyceno observery' + attemptLabel(m) +
             ' <span class="small text-body-secondary fw-normal">(' + esc(base ? base.replace(/^https?:\/\//, '') : 'analyzer') + ')</span></h6>' +
             '<div class="small mb-2">' + summary + '</div>';
         if (observers && observers.length) {
@@ -797,9 +805,13 @@
         $w.html(html);
         $('#btn-heard-check').on('click', function () {
             var $b = $(this).prop('disabled', true).html('<span class="spinner-border spinner-border-sm me-1"></span>Kontroluji…');
+            heardSel.want = m.id;
             api('heard_check', { id: m.id }, 'POST').done(function (r) {
-                if (r.message) { S.messages[r.message.id] = r.message; renderMessages(); }
+                if (heardSel.want !== m.id) { return; }
+                if (r.message && S.messages[r.message.id]) { S.messages[r.message.id] = r.message; renderMessages(); }
                 renderHeard(r.message || m, r.observers, base);
+                // kontrola proběhla pro celou skupinu opakování – obnovit i tabulku pokusů
+                if (heardSel.root && heardSel.list.length > 1) { loadCopies(heardSel.root, m.id); }
             }).fail(function (xhr) {
                 toast(errText(xhr), 'danger');
                 $b.prop('disabled', false).html('<i class="bi bi-arrow-repeat me-1"></i>Zkontrolovat znovu');
@@ -808,9 +820,18 @@
     }
 
     function loadHeard(m) {
+        heardSel.want = m.id;
         api('heard', { id: m.id }).done(function (r) {
+            if (heardSel.want !== m.id) { return; } // mezitím vybrán jiný pokus
             renderHeard(r.message || m, r.observers, r.analyzer);
         }).fail(function () { $('#heard-wrap').remove(); });
+    }
+
+    // klik na pokus v tabulce „Odesláno N×“ -> sekce „Zachyceno observery“ ukáže ten pokus
+    function selectAttempt(id) {
+        $('#copies-table tr').removeClass('current').filter('[data-id="' + id + '"]').addClass('current');
+        $('#heard-wrap').html('<h6>Zachyceno observery</h6><div class="text-body-secondary small"><span class="spinner-border spinner-border-sm me-1"></span> Načítám…</div>');
+        loadHeard({ id: id, dir: 'out', type: 'channel' });
     }
 
     // ---------- zmínky / našeptávač ----------
@@ -1313,6 +1334,7 @@
             bootstrap.Modal.getOrCreateInstance('#info-modal').hide();
             resend(m);
         });
+        heardSel = { root: m, list: [] };
         if (m.dups > 0 || m.dup_of) {
             loadCopies(m);
         }
@@ -1322,12 +1344,26 @@
         if (m.rx && m.rx.length) { initPathMap(m, routes); }
     }
 
-    function loadCopies(m) {
+    // selId: vybraný pokus (po „Zkontrolovat znovu“ zůstane vybraný); bez něj se při otevření
+    // detailu vybere nejlépe zachycený pokus, když ten otevřený nikdo nezachytil
+    function loadCopies(m, selId) {
         api('copies', { id: m.id }).done(function (r) {
             var list = r.messages;
             if (!list.length) { $('#copies-wrap').remove(); return; }
             var first = new Date(list[0].ts).getTime();
             if (m.dir === 'out') {
+                heardSel.list = list;
+                var cur = selId || m.id;
+                if (!selId && m.type === 'channel') {
+                    var me = list.find(function (c) { return c.id === m.id; }) || {};
+                    var best = null;
+                    list.forEach(function (c) {
+                        var h = c.heard || {};
+                        if (h.state === 'heard' && (!best || (h.count || 0) > (best.heard.count || 0) ||
+                            ((h.count || 0) === (best.heard.count || 0) && (h.repeats || 0) > (best.heard.repeats || 0)))) { best = c; }
+                    });
+                    if (best && best.id !== m.id && !(me.heard && me.heard.state === 'heard')) { cur = best.id; }
+                }
                 var oh = '<h6 class="mt-3">Odesláno ' + list.length + '×</h6>' +
                     '<div class="table-responsive"><table class="table table-sm small align-middle" id="copies-table">' +
                     '<thead><tr><th>#</th><th>Čas</th><th title="Repeatery zachycené companionem">Repeatery</th>' +
@@ -1337,7 +1373,8 @@
                     var diff = Math.round((new Date(c.ts).getTime() - first) / 1000);
                     var rel = i === 0 ? 'první' : '+' + fmtDiff(diff);
                     var h = c.heard || {};
-                    oh += '<tr class="' + (c.id === m.id ? 'current' : '') + '"><td>' + (i + 1) + '</td>' +
+                    oh += '<tr class="' + (c.id === cur ? 'current' : '') + '" data-id="' + c.id + '"' +
+                        (m.type === 'channel' ? ' role="button" title="Zobrazit observery tohoto pokusu"' : '') + '><td>' + (i + 1) + '</td>' +
                         '<td class="text-nowrap">' + esc(fmtTime(c.ts)) + ' <span class="text-body-secondary">(' + esc(rel) + ')</span></td>' +
                         '<td>' + (c.status === 'failed' ? '<span class="text-danger">chyba</span>' : esc(c.repeaters)) + '</td>' +
                         (m.type === 'channel'
@@ -1346,7 +1383,12 @@
                             : '<td>' + (c.status === 'delivered' ? '<i class="bi bi-check2-all"></i> ACK' : '–') + '</td>') +
                         '</tr>';
                 });
-                $('#copies-wrap').html(oh + '</tbody></table></div>');
+                $('#copies-wrap').html(oh + '</tbody></table></div>' +
+                    (m.type === 'channel' ? '<div class="small text-body-secondary mt-n2 mb-2">Klikni na pokus pro jeho observery.</div>' : ''));
+                if (m.type === 'channel') {
+                    $('#copies-table tbody tr').on('click', function () { selectAttempt(+$(this).attr('data-id')); });
+                    if (cur !== m.id && !selId) { selectAttempt(cur); }
+                }
                 return;
             }
             var html = '<h6 class="mt-3">Přijato ' + list.length + '×</h6>' +
