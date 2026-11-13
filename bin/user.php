@@ -6,6 +6,7 @@ declare(strict_types=1);
  *
  *   php bin/user.php add <jmeno>      – vytvoří uživatele a vypíše TOTP pro aplikaci
  *   php bin/user.php add <jmeno> --password=<heslo>  – navíc nastaví heslo (bez dotazu, pro instalátory)
+ *   php bin/user.php passwd <jmeno> --password=<heslo> – změna hesla bez dotazu
  *   php bin/user.php reset <jmeno>    – vygeneruje nový TOTP klíč
  *   php bin/user.php passwd <jmeno>   – nastaví heslo (zeptá se na něj)
  *   php bin/user.php nopasswd <jmeno> – zruší heslo (přihlášení jen kódem)
@@ -32,6 +33,13 @@ foreach (array_slice($argv, 3) as $a) {
 $db   = db();
 $cfg  = app_config();
 
+/** Chybová hláška a návratový kód 1 (exit("…") by skončil s kódem 0). */
+function fail(string $msg): never
+{
+    fwrite(STDERR, $msg);
+    exit(1);
+}
+
 function showTotp(string $secret, string $name, array $cfg): void
 {
     $uri = Totp::uri($secret, $name, $cfg['auth']['issuer']);
@@ -50,14 +58,14 @@ function showTotp(string $secret, string $name, array $cfg): void
 switch ($cmd) {
     case 'add':
         if (!preg_match('/^[\w.@-]{2,64}$/u', $name)) {
-            exit("Zadej platné jméno (2–64 znaků).\n");
+            fail("Zadej platné jméno (2–64 znaků).\n");
         }
         if ($db->value('SELECT id FROM users WHERE username = ?', [$name])) {
-            exit("Uživatel '$name' už existuje. Použij 'reset'.\n");
+            fail("Uživatel '$name' už existuje. Použij 'reset'.\n");
         }
         $secret = Totp::generateSecret();
         if ($optPassword !== null && mb_strlen($optPassword) < MeshClient\Auth::PASSWORD_MIN) {
-            exit('Heslo musí mít aspoň ' . MeshClient\Auth::PASSWORD_MIN . " znaků.\n");
+            fail('Heslo musí mít aspoň ' . MeshClient\Auth::PASSWORD_MIN . " znaků.\n");
         }
         $db->query('INSERT INTO users (username, totp_secret, password_hash, password_changed_at) VALUES (?, ?, ?, ?)', [
             $name, $secret,
@@ -76,7 +84,7 @@ switch ($cmd) {
         $secret = Totp::generateSecret();
         $n = $db->query('UPDATE users SET totp_secret = ?, last_totp_step = NULL WHERE username = ?', [$secret, $name])->rowCount();
         if (!$n) {
-            exit("Uživatel '$name' neexistuje.\n");
+            fail("Uživatel '$name' neexistuje.\n");
         }
         echo "Nový klíč pro '$name':\n";
         showTotp($secret, $name, $cfg);
@@ -84,7 +92,7 @@ switch ($cmd) {
 
     case 'passwd':
         if (!$db->value('SELECT id FROM users WHERE username = ?', [$name])) {
-            exit("Uživatel '$name' neexistuje.\n");
+            fail("Uživatel '$name' neexistuje.\n");
         }
         $ask = static function (string $prompt): string {
             echo $prompt;
@@ -94,12 +102,12 @@ switch ($cmd) {
             if ($tty) { shell_exec('stty echo'); echo "\n"; }
             return $v;
         };
-        $pw = $ask('Nové heslo: ');
+        $pw = $optPassword ?? $ask('Nové heslo: ');
         if (mb_strlen($pw) < MeshClient\Auth::PASSWORD_MIN) {
-            exit('Heslo musí mít aspoň ' . MeshClient\Auth::PASSWORD_MIN . " znaků.\n");
+            fail('Heslo musí mít aspoň ' . MeshClient\Auth::PASSWORD_MIN . " znaků.\n");
         }
-        if ($ask('Heslo znovu: ') !== $pw) {
-            exit("Hesla se neshodují.\n");
+        if ($optPassword === null && $ask('Heslo znovu: ') !== $pw) {
+            fail("Hesla se neshodují.\n");
         }
         $db->query('UPDATE users SET password_hash = ?, password_changed_at = UTC_TIMESTAMP() WHERE username = ?',
             [password_hash($pw, PASSWORD_DEFAULT), $name]);
