@@ -722,6 +722,11 @@
             (h.state === 'pending' && age >= HEARD_ZERO_AFTER);
     }
 
+    function heardSome(m) {
+        var h = m.heard;
+        return !!h && h.state === 'heard' && (h.count > 0 || h.repeats > 0);
+    }
+
     // Odchozí zpráva v kanálu: 📡 repeatery z HA[/heard z analyzeru]  👂 observeři kromě tvého
     function heardBadge(m) {
         var h = m.heard, rep = m.repeaters || 0;
@@ -1022,6 +1027,8 @@
         if (m.status === 'queued') { return false; } // čeká na volný provoz, odešle se samo
         if (m.status === 'failed') { return true; }
         if (m.type === 'channel' && heardZero(m)) { return true; } // žádný observer – nabídnout znovu i s repeatery
+        // zprávu zachytili observeři analyzeru = do sítě se dostala, i když companion neslyšel žádný repeater (0/35)
+        if (m.type === 'channel' && heardSome(m)) { return false; }
         if (m.type === 'channel' ? m.repeaters > 0 : m.status === 'delivered') { return false; }
         var age = (Date.now() - new Date(m.ts).getTime()) / 1000;
         // přímá zpráva se ještě automaticky opakuje (3× cestou, 3× floodem) – šipku zatím nenabízet
