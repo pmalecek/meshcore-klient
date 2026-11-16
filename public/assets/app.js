@@ -2780,6 +2780,7 @@
 
     function batterySeries(d) {
         var s = d.sensors || {}, out = [];
+        if (isSrv()) { return out; } // historii senzorů má jen Home Assistant
         if (s.battery_percentage && s.battery_percentage.id) {
             out.push({ key: 'pct', label: '%', sensor: s.battery_percentage, yMin: 0, yMax: 100 });
         }

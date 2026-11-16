@@ -391,6 +391,17 @@ final class ServerSync
                 'fw'    => $dev['firmware_ver'] ?? null,
                 'model' => $dev['model'] ?? null,
             ];
+            // baterie companionu (meshcore-server 0.12+); klíče jako senzory HA -> Baterie / Napětí baterie
+            $bat = $status['companion']['battery'] ?? null;
+            if (is_array($bat)) {
+                $upd = $bat['updated_at'] ?? null;
+                if (isset($bat['percent'])) {
+                    $snap['sensors'][] = ['id' => "sensor.meshcore_{$pk6}_battery_percentage_server", 'state' => (string) $bat['percent'], 'unit' => '%', 'name' => 'Baterie', 'updated' => $upd];
+                }
+                if (isset($bat['voltage'])) {
+                    $snap['sensors'][] = ['id' => "sensor.meshcore_{$pk6}_bat_server", 'state' => (string) $bat['voltage'], 'unit' => 'V', 'name' => 'Napětí baterie', 'updated' => $upd];
+                }
+            }
             $cfg = $dev['config'] ?? [];
             if (isset($cfg['adv_lat'], $cfg['adv_lon'])) {
                 $snap['sensors'][] = ['id' => "sensor.meshcore_{$pk6}_latitude", 'state' => (string) $cfg['adv_lat'], 'unit' => '°', 'name' => 'Latitude', 'updated' => null];

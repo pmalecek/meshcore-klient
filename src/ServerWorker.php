@@ -182,6 +182,7 @@ final class ServerWorker
                 break;
             case 'device.updated':
             case 'device.connection':
+            case 'device.battery': // server ji posílá při změně napětí, nejvýš jednou za 10 min
                 $sync->syncDevice();
                 break;
             case 'advert.received':
