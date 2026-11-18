@@ -252,6 +252,7 @@ final class ServerSync
             'id' => $id, 'conv_key' => $conv, 'sender_name' => $sender, 'body' => (string) ($m['text'] ?? ''),
             'msg_ts' => self::ts($m['received_at'] ?? null), 'direction' => $out ? 'out' : 'in',
         ]);
+        (new Reactions($this->db))->onInserted($id);
         return $id;
     }
 
@@ -260,8 +261,8 @@ final class ServerSync
     {
         $this->db->query(
             'INSERT INTO messages (srv_id, conv_key, direction, message_type, pubkey_prefix, channel_idx, sender_name, author_pk, body,
-                                   hop_count, snr, rssi, status, repeater_count, ack_received, dm_attempts, dm_flood, error, rx_log, msg_ts)
-             VALUES (:srv, :conv, :dir, :type, :pk, :idx, :sender, :author, :body, :hops, :snr, :rssi, :status, :rc, :ack, :att, :flood, :err, :rx, :ts)',
+                                   hop_count, snr, rssi, status, repeater_count, ack_received, dm_attempts, dm_flood, error, rx_log, msg_ts, sender_ts)
+             VALUES (:srv, :conv, :dir, :type, :pk, :idx, :sender, :author, :body, :hops, :snr, :rssi, :status, :rc, :ack, :att, :flood, :err, :rx, :ts, :sts)',
             [
                 'srv'    => $srvId,
                 'conv'   => $conv,
@@ -283,6 +284,8 @@ final class ServerSync
                 'err'    => isset($m['error']) && $m['error'] !== '' ? mb_substr((string) $m['error'], 0, 255) : null,
                 'rx'     => $out ? self::heardLog($m['heard_by'] ?? null) : ($rx ? json_encode($rx, JSON_UNESCAPED_UNICODE) : null),
                 'ts'     => self::ts($m['received_at'] ?? null),
+                'sts'    => isset($m['sender_ts']) && is_numeric($m['sender_ts']) && $m['sender_ts'] >= 0 && $m['sender_ts'] <= 0xFFFFFFFF
+                    ? (int) $m['sender_ts'] : null,
             ]
         );
     }

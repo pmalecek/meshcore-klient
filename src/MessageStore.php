@@ -240,6 +240,7 @@ final class MessageStore
                      'repeater_count' => $params['repeater_count'], 'rx_log' => $params['rx_log'], 'scope' => $params['scope'],
                      'sender_name' => $params['sender_name'], 'msg_ts' => $params['msg_ts'], 'id' => $ph]
                 );
+                (new Reactions($this->db))->onInserted($ph);
                 return;
             }
         }
@@ -255,6 +256,7 @@ final class MessageStore
                 ack_received = COALESCE(VALUES(ack_received), messages.ack_received)",
             $params
         );
+        $newId = $ins->rowCount() === 1 ? $this->db->lastId() : 0;
 
         // rowCount 1 = nový řádek (2 = aktualizace existující odchozí zprávy podle send_id)
         if ($ins->rowCount() === 1 && !$outgoing && $type === 'direct' && $this->roomPending) {
@@ -266,15 +268,16 @@ final class MessageStore
                 }
             }
         }
-        if ($ins->rowCount() === 1) {
+        if ($newId > 0) {
             $this->linkDuplicate([
-                'id'          => $this->db->lastId(),
+                'id'          => $newId,
                 'conv_key'    => $conv,
                 'sender_name' => $params['sender_name'],
                 'body'        => $params['body'],
                 'msg_ts'      => $params['msg_ts'],
                 'direction'   => $outgoing ? 'out' : 'in',
             ]);
+            (new Reactions($this->db))->onInserted($newId);
         }
     }
 

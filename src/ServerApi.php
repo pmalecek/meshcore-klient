@@ -39,7 +39,7 @@ final class ServerApi
         return [
             'backend' => 'server', 'remote' => true, 'room_login' => true, 'trace' => false,
             'path_discover' => false, 'contact_import' => false, 'ha_devices' => false, 'traffic' => false,
-            'region_none' => false,
+            'region_none' => false, 'react' => true,
         ];
     }
 
@@ -63,6 +63,7 @@ final class ServerApi
                 'POST conv_settings'   => $this->convSettings($input),
                 'POST read'            => $this->read($input),
                 'POST send'            => $this->send($input),
+                'POST react'           => $this->react($input),
                 'POST room_login'      => $this->roomLogin($input),
                 'POST remote_status'   => $this->remoteStatus($input),
                 'POST remote_cmd'      => $this->remoteCmd($input),
@@ -290,6 +291,14 @@ final class ServerApi
         // zprávu uložit hned (worker ji dostane i přes WebSocket – podle srv_id se nezdvojí)
         $id = is_array($r['message'] ?? null) ? $this->sync()->upsertMessage($r['message']) : null;
         return [['ok' => true, 'id' => $id], 200];
+    }
+
+    /** Rychlá reakce na zprávu – odešle se jako text ve formátu MeshCore One (viz Reactions). */
+    private function react(array $input): array
+    {
+        $r = (new Reactions($this->db))->textFor((int) ($input['id'] ?? 0), (string) ($input['emoji'] ?? ''),
+            (string) $this->api->selfName($this->cfg));
+        return $this->send(['conv' => $r['conv'], 'text' => $r['text']]);
     }
 
     // ------------------------------------------------------------------ room servery a vzdálená správa

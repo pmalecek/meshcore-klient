@@ -571,6 +571,15 @@ final class Api
             ] : null,
             'rx'        => $m['rx_log'] ? json_decode($m['rx_log'], true) : null,
             'ts'        => self::iso($m['msg_ts']),
+            // rychlá reakce (Reactions): emoji, autor původní zprávy, ID původní zprávy (když je známá)
+            'reaction'  => isset($m['reaction_emoji']) && $m['reaction_emoji'] !== null ? [
+                'emoji'  => $m['reaction_emoji'],
+                'target' => $m['reaction_target'],
+                'of'     => $m['reaction_of'] !== null ? (int) $m['reaction_of'] : null,
+            ] : null,
+            // jde na zprávu reagovat? (je známý čas odesílatele – jen režim meshcore-server)
+            'react'     => isset($m['sender_ts']) && $m['sender_ts'] !== null && ($m['author_pk'] ?? null) === null
+                && ($m['reaction_emoji'] ?? null) === null && $m['status'] !== 'failed',
         ];
     }
 

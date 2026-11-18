@@ -83,6 +83,12 @@ CREATE TABLE IF NOT EXISTS messages (
     heard_checked_at DATETIME     NULL,
     rx_log          JSON          NULL,
     msg_ts          DATETIME(3)   NOT NULL COMMENT 'Čas zprávy z události (UTC)',
+    sender_ts       INT UNSIGNED  NULL COMMENT 'Čas odesílatele (unix s) – z meshcore-serveru',
+    react_hash      CHAR(8)       NULL COMMENT 'Otisk zprávy pro reakce (SHA-256 text + čas odesílatele)',
+    reaction_emoji  VARCHAR(32)   NULL COMMENT 'Zpráva je reakce: emoji',
+    reaction_target VARCHAR(100)  NULL COMMENT 'Reakce: autor původní zprávy',
+    reaction_hash   CHAR(8)       NULL COMMENT 'Reakce: otisk původní zprávy',
+    reaction_of     BIGINT UNSIGNED NULL COMMENT 'Reakce: ID původní zprávy (když je známá)',
     created_at      DATETIME(6)   NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     updated_at      DATETIME(6)   NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
     UNIQUE KEY uq_messages_send_id (send_id),
@@ -91,7 +97,10 @@ CREATE TABLE IF NOT EXISTS messages (
     KEY ix_messages_updated (updated_at),
     KEY ix_messages_match (entity_id, msg_ts),
     KEY ix_messages_dup (dup_of),
-    KEY ix_messages_heard (direction, message_type, heard_attempts, msg_ts)
+    KEY ix_messages_heard (direction, message_type, heard_attempts, msg_ts),
+    KEY ix_messages_react (conv_key, react_hash),
+    KEY ix_messages_reaction (conv_key, reaction_hash),
+    KEY ix_messages_reaction_of (reaction_of)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 
 CREATE TABLE IF NOT EXISTS conv_reads (

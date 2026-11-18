@@ -261,7 +261,7 @@
                 ' · ' + fmtAgo(c.last_advert);
         } else if (c.last) {
             preview = (c.last.dir === 'out' ? 'Ty: ' : (c.kind === 'channel' && c.last.sender ? c.last.sender + ': ' : '')) +
-                (c.last.status === 'failed' ? '⚠ neodesláno' : previewText(c.last.body));
+                (c.last.status === 'failed' ? '⚠ neodesláno' : c.last.reaction ? reactionPreview(c.last) : previewText(c.last.body));
         } else {
             preview = '';
         }
@@ -410,21 +410,113 @@
         var $list = $('#message-list').empty();
         var ids = Object.keys(S.messages).map(Number).sort(function (a, b) { return a - b; });
         var lastDay = null;
+        // reakce na zprávy, které jsou v seznamu, se zobrazí jako čipy pod nimi (ne jako bubliny)
+        var reacts = {};
         ids.forEach(function (id) {
             var m = S.messages[id];
+            if (m.reaction && m.reaction.of && S.messages[m.reaction.of] && !m.dup_of) {
+                (reacts[m.reaction.of] = reacts[m.reaction.of] || []).push(m);
+            }
+        });
+        ids.forEach(function (id) {
+            var m = S.messages[id];
+            if (m.reaction && (m.dup_of || (m.reaction.of && S.messages[m.reaction.of]))) { return; }
             var day = new Date(m.ts).toDateString();
             if (day !== lastDay) {
                 $list.append('<div class="day-sep"><span>' + esc(fmtDay(m.ts)) + '</span></div>');
                 lastDay = day;
             }
-            $list.append(msgEl(m));
+            $list.append(m.reaction ? reactionLineEl(m) : msgEl(m, reacts[id]));
         });
         S.pending.forEach(function (p) {
-            if (p.conv === S.current) { $list.append(msgEl(p)); }
+            if (p.conv === S.current && !p.reaction) { $list.append(msgEl(p)); }
         });
     }
 
-    function msgEl(m) {
+    // ---------- rychlé reakce (formát MeshCore One, viz src/Reactions.php) ----------
+    function canReact(m) { return isSrv() && can('react') && !!m.react && !!m.id; }
+
+    function reactorName(m) {
+        if (m.dir === 'out') { return 'ty'; }
+        var c = S.convs[m.conv] || {};
+        return m.sender || (c.kind === 'contact' ? c.name : '?');
+    }
+
+    function reactionChips(target, list) {
+        var groups = [], by = {};
+        list.forEach(function (r) {
+            var e = r.reaction.emoji;
+            if (!by[e]) { by[e] = { emoji: e, names: [], mine: false, pending: false }; groups.push(by[e]); }
+            var n = reactorName(r);
+            if (by[e].names.indexOf(n) < 0) { by[e].names.push(n); }
+            if (r.dir === 'out') { by[e].mine = true; }
+        });
+        var $w = $('<div class="reactions">');
+        groups.forEach(function (g) {
+            $('<button type="button" class="reaction-chip">').toggleClass('mine', g.mine)
+                .attr('data-emoji', g.emoji).attr('title', g.names.join(', '))
+                .append($('<span class="emoji">').text(g.emoji))
+                .append(g.names.length > 1 ? $('<span class="cnt">').text(g.names.length) : null)
+                .appendTo($w);
+        });
+        return $w;
+    }
+
+    // reakce, jejíž původní zpráva v seznamu není (starší, nebo ji companion nezachytil)
+    function reactionLineEl(m) {
+        var r = m.reaction, who = reactorName(m);
+        var txt = (who === 'ty' ? 'Ty: ' : who + ': ') + r.emoji + ' na ' + (r.of ? 'starší zprávu' : 'zprávu') +
+            (r.target ? ' od ' + r.target : '') + (r.of ? '' : ' (klient ji nemá)');
+        return $('<div class="msg reaction-line">').addClass(m.dir).attr('data-id', m.id || '')
+            .append($('<div class="reaction-note">').text(txt + ' · ' + fmtTime(m.ts)));
+    }
+
+    var REACT_PICK = { id: null };
+    function showReactPicker(m, anchor) {
+        var $p = $('#react-picker');
+        if (!$p.length) {
+            $p = $('<div id="react-picker" class="shadow">').appendTo('body');
+            $p.on('click', 'button', function () {
+                var tm = S.messages[REACT_PICK.id];
+                hideReactPicker();
+                if (tm) { sendReaction(tm, $(this).attr('data-emoji')); }
+            });
+            $(document).on('mousedown touchstart', function (e) {
+                if (!$(e.target).closest('#react-picker, .react-btn').length) { hideReactPicker(); }
+            });
+        }
+        REACT_PICK.id = m.id;
+        $p.empty();
+        (S.reactQuick || ['👍', '❤️', '😂', '😮', '😢', '🙏']).forEach(function (e) {
+            $('<button type="button">').attr('data-emoji', e).text(e).appendTo($p);
+        });
+        var r = anchor.getBoundingClientRect();
+        $p.removeClass('d-none').css({ top: 0, left: 0 });
+        var w = $p.outerWidth(), h = $p.outerHeight();
+        var left = Math.max(8, Math.min(window.innerWidth - w - 8, r.left + r.width / 2 - w / 2));
+        var top = r.top - h - 6 < 8 ? r.bottom + 6 : r.top - h - 6;
+        $p.css({ top: top + window.scrollY, left: left + window.scrollX });
+    }
+    function hideReactPicker() { $('#react-picker').addClass('d-none'); REACT_PICK.id = null; }
+
+    function sendReaction(m, emoji) {
+        if (!canReact(m)) { return; }
+        var mine = Object.keys(S.messages).some(function (k) {
+            var x = S.messages[k];
+            return x.dir === 'out' && x.reaction && x.reaction.of === m.id && x.reaction.emoji === emoji;
+        });
+        if (mine && !confirm('Touhle reakcí už jsi na zprávu reagoval(a). Poslat ji znovu?')) { return; }
+        api('react', { id: m.id, emoji: emoji }, 'POST')
+            .done(function () { toast('Reakce ' + emoji + ' odeslána', 'success'); })
+            .fail(function (xhr) { toast(errText(xhr), 'danger'); });
+    }
+
+    function reactionPreview(m) {
+        var r = m.reaction;
+        return r.emoji + ' reakce' + (r.target ? ' na zprávu od ' + r.target : '');
+    }
+
+    function msgEl(m, reacts) {
         var c = S.convs[m.conv] || {};
         var $m = $('<div class="msg">').addClass(m.dir).attr('data-id', m.id || '')
             .toggleClass('failed', m.status === 'failed')
@@ -480,6 +572,9 @@
         if (m.scope) {
             meta.push('<span class="scope-badge" title="Region (scope) paketu">' + esc(fmtScope(m.scope)) + '</span>');
         }
+        if (canReact(m)) {
+            meta.push('<span class="react-btn" role="button" title="Reagovat"><i class="bi bi-emoji-smile"></i></span>');
+        }
         if (m.body) { meta.push('<span class="msg-bytes" title="Velikost textu zprávy">' + utf8Len(m.body) + ' B</span>'); }
         var gv = m.group ? groupView(m) : null;
         if (gv && gv._lastTs) {
@@ -495,6 +590,9 @@
                     : rv.repeaters > 0 && heardZero(rv) ? 'Žádný observer zprávu nezachytil – odeslat znovu'
                     : 'Žádný repeater zprávu nezachytil – odeslat znovu')
                 .html('<i class="bi bi-arrow-clockwise"></i>'));
+        }
+        if (reacts && reacts.length) {
+            return $m.append($('<div class="bubble-wrap">').append($b, reactionChips(m, reacts)));
         }
         return $m.append($b);
     }
@@ -3320,12 +3418,13 @@
     // ---------- notifikace ----------
     function notify(m) {
         var c = S.convs[m.conv] || { name: m.sender || 'MeshCore' };
+        var body = m.reaction ? reactionPreview(m) : m.body;
         if (!('Notification' in window) || Notification.permission !== 'granted') {
-            if (!document.hidden) { toast(c.name + ': ' + m.body, 'primary'); }
+            if (!document.hidden) { toast(c.name + ': ' + body, 'primary'); }
             return;
         }
         var title = c.kind === 'channel' ? c.name + ' – ' + (m.sender || '') : c.name;
-        var n = new Notification(title, { body: m.body, tag: m.conv });
+        var n = new Notification(title, { body: body, tag: m.conv });
         n.onclick = function () { window.focus(); openConv(m.conv); n.close(); };
     }
 
@@ -3421,8 +3520,20 @@
         if (S.current) { openConv(S.current, true); }
     });
     $('#message-list').on('click', '.msg[data-id] .bubble', function () {
-        var m = S.messages[$(this).parent().attr('data-id')];
+        var m = S.messages[$(this).closest('.msg').attr('data-id')];
         if (m) { showMessageInfo(m); }
+    });
+    $('#message-list').on('click', '.bubble .react-btn', function (e) {
+        e.stopPropagation();
+        var m = S.messages[$(this).closest('.msg').attr('data-id')];
+        if (m) { showReactPicker(m, this); }
+    });
+    // klik na čip = přidat stejnou reakci
+    $('#message-list').on('click', '.reaction-chip', function () {
+        var m = S.messages[$(this).closest('.msg').attr('data-id')];
+        if (!m) { return; }
+        if (!canReact(m)) { toast($(this).attr('title') || '', 'secondary'); return; }
+        sendReaction(m, $(this).attr('data-emoji'));
     });
     $('#load-more').on('click', function () {
         var conv = S.current, el = document.getElementById('messages'), h = el.scrollHeight;
@@ -3587,6 +3698,7 @@
         S.maxLen = r.max_len;
         S.selfName = r.self_name || null;
         S.caps = r.caps || {};
+        S.reactQuick = r.reactions || null;
         S.settings = r.settings || S.settings;
         S.patterns = r.patterns || [];
         $('#tabs .nav-link').removeClass('active').filter('[data-tab="' + S.tab + '"]').addClass('active');

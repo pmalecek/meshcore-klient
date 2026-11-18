@@ -9,6 +9,7 @@ use MeshClient\DmSender;
 use MeshClient\SendQueue;
 use MeshClient\HaRest;
 use MeshClient\McServer;
+use MeshClient\Reactions;
 use MeshClient\ServerApi;
 use MeshClient\History;
 use MeshClient\MessageStore;
@@ -156,6 +157,7 @@ try {
             out(['state' => $api->state()]);
 
         case 'GET init':
+            (new Reactions(db()))->backfill(); // jednorázově po aktualizaci
             out([
                 'state'         => $api->state(),
                 'conversations' => $api->conversations(),
@@ -166,6 +168,7 @@ try {
                 'analyzer'      => !empty($cfg['analyzer']['enabled']) && !empty($cfg['analyzer']['url']),
                 'home'          => $api->home($cfg),
                 'self_name'     => $api->selfName($cfg),
+                'reactions'     => Reactions::QUICK,
                 // režim napojení a funkce, které v něm nejsou (rozhraní je skryje)
                 'caps'          => McServer::enabled($cfg) ? ServerApi::capabilities() : ['backend' => 'ha'],
             ]);
@@ -625,6 +628,10 @@ try {
             }
             $api->markRead($conv, (int) ($input['last_id'] ?? 0));
             out(['ok' => true]);
+
+        case 'POST react':
+            // čas odesílatele (potřebný pro otisk zprávy) nese jen meshcore-server
+            out(['error' => 'Reakce jde odesílat jen v režimu meshcore-server.'], 400);
 
         case 'POST send':
             $conv = (string) ($input['conv'] ?? '');

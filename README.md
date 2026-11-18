@@ -18,6 +18,8 @@ Rozhraní je v češtině.
   - DM, kanály a room servery.
   - Nepřečtené zprávy, oblíbené, vyhledávání, zmínky `@[jméno]`, vizitky kontaktů.
   - Skrývání duplicitních zpráv.
+  - Rychlé reakce (👍 ❤️ 😂 …) ve formátu aplikace MeshCore One: zobrazí se jako čipy pod zprávou,
+    odesílat je jde v režimu meshcore-server.
 - **Doručení DM:** 3 pokusy známou cestou, pak reset cesty a 3 pokusy floodem. Potvrzení přes ACK.
 - **Limit provozu v meshcore-ha:**
   - Zprávy do kanálů čekají ve frontě a odešlou se samy.
@@ -216,6 +218,8 @@ Pak spusť migraci `sql/migrations/014_meshcore_server.sql` (u nové instalace n
 - **Room servery a repeatery** (meshcore-server 0.11+): přihlášení do roomu (heslo si může uložit server
   a po výpadku se přihlásí sám), příspěvky se jmény autorů, stav uzlu a příkazy (verze, čas, jméno, poloha,
   advert, restart). Příkazy na uzlu vyžadují token s oprávněním `admin`.
+- **Reakce:** server zná čas odeslání zprávy, ze kterého se počítá otisk zprávy, proto jde reagovat jen
+  v tomto režimu. V režimu HA se přijaté reakce k původní zprávě přiřadí podle času přijetí.
 - **Zatím chybí:** trace, zjištění cesty, import exportované karty kontaktu, sledování uzlů se senzory
   a „bez regionu“ u kanálu. Rozhraní je v tomto režimu skryje. Klíč kanálu ke sdílení vydá server
   jen tokenu s oprávněním `admin`.
