@@ -281,13 +281,16 @@ final class Reactions
             $m = $this->db->one('SELECT * FROM messages WHERE id = ?', [(int) $m['dup_of']]) ?: $m;
         }
         $channel = $m['message_type'] === 'channel';
+        if ($m['direction'] === 'out') {
+            throw new \InvalidArgumentException('Na vlastní zprávy se nereaguje');
+        }
         if ($m['sender_ts'] === null) {
             throw new \InvalidArgumentException('U téhle zprávy neznám čas odeslání, takže na ni reagovat nejde (starší zpráva).');
         }
         $hash = $m['react_hash'] ?: self::hash(self::hashText((string) $m['body'], $channel), (int) $m['sender_ts']);
         $target = null;
         if ($channel) {
-            $target = $m['direction'] === 'out' ? ((string) $m['sender_name'] ?: $selfName) : (string) $m['sender_name'];
+            $target = (string) $m['sender_name'];
             if ($target === '') {
                 throw new \InvalidArgumentException('Neznám autora zprávy');
             }

@@ -577,8 +577,9 @@ final class Api
                 'target' => $m['reaction_target'],
                 'of'     => $m['reaction_of'] !== null ? (int) $m['reaction_of'] : null,
             ] : null,
-            // jde na zprávu reagovat? (je známý čas odesílatele – jen režim meshcore-server)
-            'react'     => isset($m['sender_ts']) && $m['sender_ts'] !== null && ($m['author_pk'] ?? null) === null
+            // jde na zprávu reagovat? (cizí zpráva se známým časem odesílatele – jen režim meshcore-server)
+            'react'     => $m['direction'] === 'in' && isset($m['sender_ts']) && $m['sender_ts'] !== null
+                && ($m['author_pk'] ?? null) === null
                 && ($m['reaction_emoji'] ?? null) === null && $m['status'] !== 'failed',
         ];
     }
