@@ -63,6 +63,7 @@ final class ServerWorker
                     $sync->syncDevice();
                     $sync->syncContacts();
                     $sync->syncChannels();
+                    $sync->syncTracked();
                 }
                 $this->store->setState('worker_connected', '1');
                 $this->store->setState('worker_started_at', gmdate('c'));
@@ -184,6 +185,12 @@ final class ServerWorker
             case 'device.connection':
             case 'device.battery': // server ji posílá při změně napětí, nejvýš jednou za 10 min
                 $sync->syncDevice();
+                break;
+            case 'node.tracked':
+                $sync->onTracked($data);
+                break;
+            case 'node.untracked':
+                $sync->onTracked($data, true);
                 break;
             case 'advert.received':
                 // nový uzel se objeví mezi slyšenými při další synchronizaci kontaktů

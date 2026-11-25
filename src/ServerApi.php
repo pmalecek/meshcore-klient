@@ -20,7 +20,6 @@ final class ServerApi
         'POST contact_import'  => 'Import vizitky',
         'POST path_discover'   => 'Zjištění cesty',
         'POST trace'           => 'Trace',
-        'GET history'          => 'Historie senzorů',
     ];
 
     private McServer $srv;
@@ -39,7 +38,7 @@ final class ServerApi
         return [
             'backend' => 'server', 'remote' => true, 'room_login' => true, 'trace' => false,
             'path_discover' => false, 'contact_import' => false, 'ha_devices' => false, 'traffic' => false,
-            'region_none' => true, 'react' => true,
+            'region_none' => true, 'react' => true, 'track' => true,
         ];
     }
 
@@ -67,6 +66,9 @@ final class ServerApi
                 'POST room_login'      => $this->roomLogin($input),
                 'POST remote_status'   => $this->remoteStatus($input),
                 'POST remote_cmd'      => $this->remoteCmd($input),
+                'POST track'           => $this->track((string) ($input['pk'] ?? ''), !empty($input['on'])),
+                'POST track_poll'      => $this->trackPoll((string) ($input['pk'] ?? '')),
+                'GET history'          => $this->history((string) ($_GET['entity'] ?? ''), (string) ($_GET['range'] ?? '24h')),
                 default                => null,
             };
         } catch (McServerException $e) {
@@ -165,6 +167,62 @@ final class ServerApi
         $r = $this->srv->post('/contacts/' . self::pk12($pk) . '/reset-path');
         $this->sync()->syncContacts();
         return [['ok' => true, 'result' => $r, 'conversations' => $this->api->conversations()], 200];
+    }
+
+    // ------------------------------------------------------------------ sledování uzlů
+
+    /** Začít / přestat sledovat uzel (meshcore-server 0.14+). */
+    private function track(string $pk, bool $on): array
+    {
+        $pk12 = self::pk12($pk);
+        try {
+            if ($on) {
+                $this->sync()->onTracked($this->srv->put('/tracked/' . $pk12, []));
+            } else {
+                $this->srv->delete('/tracked/' . $pk12);
+                $this->sync()->syncTracked();
+            }
+        } catch (McServerException $e) {
+            if ($e->getCode() === 404 && $on) {
+                throw new McServerException('Sledování uzlů vyžaduje meshcore-server 0.14 nebo novější (nebo uzel neexistuje).', 400);
+            }
+            throw $e;
+        }
+        return [['ok' => true, 'devices' => $this->api->devices()], 200];
+    }
+
+    private function trackPoll(string $pk): array
+    {
+        $this->sync()->onTracked($this->srv->post('/tracked/' . self::pk12($pk) . '/poll'));
+        return [['ok' => true, 'devices' => $this->api->devices()], 200];
+    }
+
+    /**
+     * Historie senzoru sledovaného uzlu pro graf (tvar jako History z HA).
+     * entity = sensor.meshcore_<pk10>_<klíč>_srv (viz ServerSync::trackedSnapshot)
+     */
+    private function history(string $entity, string $range): array
+    {
+        $hours = ['24h' => 24, '7d' => 168, '30d' => 720, '1y' => 8760][$range] ?? 24;
+        $to = gmdate('c');
+        $empty = [['history' => ['source' => 'server', 'points' => [], 'from' => gmdate('c', time() - $hours * 3600), 'to' => $to]], 200];
+        if (!preg_match('/^sensor\.meshcore_([0-9a-f]{10})_(.+)_srv$/', $entity, $m)) {
+            return $empty; // např. baterie companionu – historii server nedrží
+        }
+        [$pk10, $key] = [$m[1], $m[2]];
+        $field = ['battery_percentage' => 'battery_percent'][$key] ?? $key;
+        $scale = $key === 'bat' ? 0.001 : 1.0; // server drží mV
+        $r = $this->srv->get('/tracked/' . $pk10 . '/history', ['hours' => $hours, 'fields' => $field === 'bat' ? 'bat,ch1_voltage' : $field]);
+        $points = [];
+        foreach ($r['items'] ?? [] as $it) {
+            $v = $it['data'][$field] ?? null;
+            if (!is_numeric($v)) {
+                continue;
+            }
+            $points[] = [(int) (strtotime((string) $it['at']) * 1000), round((float) $v * $scale, 3)];
+        }
+        $empty[0]['history']['points'] = $points;
+        return $empty;
     }
 
     private function advert(bool $flood): array

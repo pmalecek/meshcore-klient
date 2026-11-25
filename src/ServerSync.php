@@ -33,9 +33,46 @@ final class ServerSync
         $log && $log("Kontakty synchronizovány: $n");
         $n = $this->syncChannels();
         $log && $log("Kanály synchronizovány: $n");
+        $this->syncTracked();
         $n = $this->backfill($backfillDays);
         $log && $log("Zprávy doplněny: $n");
         $this->syncUnread();
+    }
+
+    /** Sledované uzly (meshcore-server 0.14+) – do snapshotu jako zařízení se senzory. */
+    public function syncTracked(): void
+    {
+        try {
+            $r = $this->srv->get('/tracked');
+        } catch (McServerException) {
+            $r = null; // starší server sledování nezná
+        }
+        $items = [];
+        foreach (is_array($r) ? ($r['items'] ?? []) : [] as $t) {
+            if (!empty($t['public_key'])) {
+                $items[strtolower((string) $t['public_key'])] = $t;
+            }
+        }
+        $this->setState('srv_tracked', json_encode($items, JSON_UNESCAPED_UNICODE));
+        $this->writeSnapshot();
+    }
+
+    /** Událost node.tracked (nový stav uzlu) / node.untracked */
+    public function onTracked(array $t, bool $removed = false): void
+    {
+        $key = strtolower((string) ($t['public_key'] ?? ''));
+        if ($key === '') {
+            return;
+        }
+        $items = $this->state('srv_tracked');
+        $items = is_array($items) ? $items : [];
+        if ($removed) {
+            unset($items[$key]);
+        } else {
+            $items[$key] = $t;
+        }
+        $this->setState('srv_tracked', json_encode($items, JSON_UNESCAPED_UNICODE));
+        $this->writeSnapshot();
     }
 
     /** Stav companionu (verze, jméno, poloha, připojení) jako snapshot pro Api. */
@@ -423,7 +460,96 @@ final class ServerSync
                 $snap['sensors'][] = ['id' => "sensor.meshcore_{$pk6}_longitude", 'state' => (string) $cfg['adv_lon'], 'unit' => '°', 'name' => 'Longitude', 'updated' => null];
             }
         }
+        $this->trackedSnapshot($snap);
         $this->setState('ha_snapshot', json_encode($snap, JSON_UNESCAPED_UNICODE));
+    }
+
+    /**
+     * Sledované uzly ve tvaru entit HA, který zná Api::devices(): binary_sensor …_online_srv a senzory …_<klíč>_srv.
+     * Historii pro grafy vrací server (ServerApi::history).
+     */
+    private function trackedSnapshot(array &$snap): void
+    {
+        $items = $this->state('srv_tracked');
+        if (!is_array($items)) {
+            return;
+        }
+        foreach ($items as $t) {
+            $pk10 = substr(strtolower((string) ($t['public_key'] ?? '')), 0, 10);
+            if (!preg_match('/^[0-9a-f]{10}$/', $pk10)) {
+                continue;
+            }
+            $snap['devices'][] = [
+                'id'      => "binary_sensor.meshcore_{$pk10}_online_srv",
+                'state'   => ($t['online'] ?? null) === true ? 'on' : (($t['online'] ?? null) === false ? 'off' : 'unknown'),
+                'name'    => (string) ($t['name'] ?? $pk10),
+                'changed' => $t['last_ok_at'] ?? $t['last_poll_at'] ?? null,
+                'tracked' => [
+                    'key'        => (string) $t['public_key'],
+                    'last_poll'  => $t['last_poll_at'] ?? null,
+                    'next_poll'  => $t['next_poll_at'] ?? null,
+                    'failures'   => (int) ($t['failures'] ?? 0),
+                    'error'      => $t['last_error'] ?? null,
+                    'interval'   => $t['interval_minutes'] ?? null,
+                ],
+            ];
+            $upd = $t['last_ok_at'] ?? null;
+            $add = static function (string $key, mixed $v, ?string $unit, string $name) use (&$snap, $pk10, $upd): void {
+                if ($v === null || $v === '' || is_array($v)) {
+                    return;
+                }
+                $snap['sensors'][] = ['id' => "sensor.meshcore_{$pk10}_{$key}_srv", 'state' => (string) $v, 'unit' => $unit, 'name' => $name, 'updated' => $upd];
+            };
+            $st = is_array($t['status'] ?? null) ? $t['status'] : [];
+            if (isset($st['bat']) && is_numeric($st['bat']) && $st['bat'] > 0) {
+                $add('bat', round($st['bat'] / 1000, 3), 'V', 'Napětí baterie');
+                $add('battery_percentage', max(0, min(100, (int) round(($st['bat'] - 3000) / 12))), '%', 'Baterie');
+            }
+            $map = [
+                'uptime' => ['s', 'Uptime'], 'noise_floor' => ['dBm', 'Šumové pozadí'], 'last_rssi' => ['dBm', 'Poslední RSSI'],
+                'last_snr' => ['dB', 'Poslední SNR'], 'tx_queue_len' => [null, 'Fronta TX'], 'nb_sent' => [null, 'Odesláno paketů'],
+                'nb_recv' => [null, 'Přijato paketů'], 'full_evts' => [null, 'Přetečení fronty'], 'recv_errors' => [null, 'Chyby příjmu'],
+                'airtime' => ['s', 'Vysílání celkem'], 'rx_airtime' => ['s', 'Příjem celkem'],
+                'sent_flood' => [null, 'Odesláno floodem'], 'sent_direct' => [null, 'Odesláno přímo'],
+                'recv_flood' => [null, 'Přijato floodem'], 'recv_direct' => [null, 'Přijato přímo'],
+                'flood_dups' => [null, 'Duplicity (flood)'], 'direct_dups' => [null, 'Duplicity (přímo)'],
+            ];
+            foreach ($map as $k => [$unit, $name]) {
+                if (isset($st[$k]) && is_numeric($st[$k])) {
+                    $add($k, $st[$k], $unit, $name);
+                }
+            }
+            // telemetrie (Cayenne LPP) -> chN_typ; kanál 1 napětí = baterie uzlu
+            $units = ['voltage' => 'V', 'temperature' => '°C', 'humidity' => '%', 'barometer' => 'hPa', 'current' => 'A',
+                'percentage' => '%', 'illuminance' => 'lx', 'altitude' => 'm', 'power' => 'W', 'energy' => 'kWh', 'distance' => 'm'];
+            foreach (is_array($t['telemetry'] ?? null) ? $t['telemetry'] : [] as $it) {
+                if (!is_array($it) || !isset($it['channel'])) {
+                    continue;
+                }
+                $type = strtolower(trim(preg_replace('/[^a-z0-9]+/i', '_', (string) ($it['type'] ?? 'value')), '_'));
+                $val = $it['value'] ?? null;
+                $names = ['voltage' => 'napětí', 'temperature' => 'teplota', 'humidity' => 'vlhkost', 'barometer' => 'tlak',
+                    'current' => 'proud', 'percentage' => 'procenta', 'illuminance' => 'osvětlení', 'altitude' => 'výška',
+                    'power' => 'výkon', 'energy' => 'energie', 'distance' => 'vzdálenost', 'gps' => 'poloha',
+                    'digital_input' => 'digitální vstup', 'analog_input' => 'analogový vstup', 'presence' => 'přítomnost'];
+                $label = 'Kanál ' . (int) $it['channel'] . ' – ' . ($names[$type] ?? str_replace('_', ' ', $type));
+                if (is_array($val)) {
+                    foreach ($val as $sub => $sv) {
+                        if (is_numeric($sv)) {
+                            $add('ch' . (int) $it['channel'] . "_{$type}_" . preg_replace('/\W+/', '_', (string) $sub), $sv, null, "$label $sub");
+                        }
+                    }
+                    continue;
+                }
+                if (is_numeric($val)) {
+                    $add('ch' . (int) $it['channel'] . "_$type", $val, $units[$type] ?? null, $label);
+                    if ((int) $it['channel'] === 1 && $type === 'voltage' && !isset($st['bat']) && $val > 0) {
+                        $add('bat', $val, 'V', 'Napětí baterie');
+                        $add('battery_percentage', max(0, min(100, (int) round(($val * 1000 - 3000) / 12))), '%', 'Baterie');
+                    }
+                }
+            }
+        }
     }
 
     // ------------------------------------------------------------------ pomocné

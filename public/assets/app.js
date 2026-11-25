@@ -1519,6 +1519,22 @@
         });
     }
 
+    // ---------- sledování uzlů (meshcore-server) ----------
+    function canTrack() { return isSrv() && can('track'); }
+    function isTracked(pk) {
+        var D = S.devices, pk10 = String(pk || '').slice(0, 10), hit = false;
+        ((D && D.devices) || []).forEach(function (d) { if (d.tracked && d.pk === pk10) { hit = true; } });
+        return hit;
+    }
+    function setTracking(pk, on, done, always) {
+        api('track', { pk: pk, on: on ? 1 : 0 }, 'POST').done(function (r) {
+            S.devices = r.devices;
+            if (S.tab === 'devices') { renderDevices(); }
+            toast(on ? 'Uzel se sleduje – první dotaz právě probíhá' : 'Sledování vypnuto', 'secondary');
+            if (done) { done(); }
+        }).fail(function (xhr) { toast(errText(xhr), 'danger'); }).always(function () { if (always) { always(); } });
+    }
+
     function showContactInfo(c) {
         var html = '<table class="table table-sm mb-0">' +
             row('Jméno', esc(c.name)) +
@@ -1531,12 +1547,21 @@
                 c.lat + '&mlon=' + c.lon + '#map=13/' + c.lat + '/' + c.lon + '">' + c.lat.toFixed(5) + ', ' + c.lon.toFixed(5) + '</a>') : '') +
             scopeRows(c.scopes) +
             '</table>';
-        html += '<div class="d-flex gap-2 mt-3"><button type="button" class="btn btn-outline-secondary btn-sm" id="info-path">' +
-            '<i class="bi bi-signpost-2 me-1"></i>Cesta…</button>' + traceButton(c.pk) + '</div>';
+        var tracked = isTracked(c.pk);
+        html += '<div class="d-flex flex-wrap gap-2 mt-3"><button type="button" class="btn btn-outline-secondary btn-sm" id="info-path">' +
+            '<i class="bi bi-signpost-2 me-1"></i>Cesta…</button>' + traceButton(c.pk) +
+            (canTrack() ? '<button type="button" class="btn btn-sm ' + (tracked ? 'btn-outline-danger' : 'btn-outline-primary') + '" id="info-track">' +
+                '<i class="bi ' + (tracked ? 'bi-eye-slash' : 'bi-eye') + ' me-1"></i>' + (tracked ? 'Nesledovat' : 'Sledovat') + '</button>' : '') + '</div>' +
+            (canTrack() && !tracked ? '<div class="small text-body-secondary mt-1">Sledování: server se uzlu jednou za ' + (S.trackInterval || 30) + ' min zeptá na ' +
+                (c.type === 2 || c.type === 3 ? 'stav (baterie, šum, provoz) – přihlásí se uloženým heslem, jinak jako host' : 'telemetrii – uzel ji musí povolit') + '.</div>' : '');
         var remote = (c.type === 2 || c.type === 3) && can('remote'); // repeater / room server
         if (remote) { html += remotePanelHtml(); }
         showModal(c.name, html);
         if (remote) { initRemote({ pk: c.pk, name: c.name }); }
+        $('#info-track').on('click', function () {
+            var $b = $(this).prop('disabled', true);
+            setTracking(c.pk, !tracked, function () { showContactInfo(c); }, function () { $b.prop('disabled', false); });
+        });
     }
 
     // ---------- vzhled: pozadí ----------
@@ -2286,6 +2311,7 @@
     function loadDevices() {
         return api('devices').done(function (r) {
             S.devices = r.devices;
+            (r.devices.devices || []).forEach(function (d) { if (d.tracked && d.tracked.interval) { S.trackInterval = d.tracked.interval; } });
             if (S.tab === 'devices') { renderDevices(); }
         });
     }
@@ -2352,7 +2378,7 @@
         $l.append('<div class="dev-section px-3 pt-3 pb-1">Sledovaná zařízení' +
             (D.devices.length ? ' (' + D.devices.filter(function (d) { return d.online; }).length + '/' + D.devices.length + ' online)' : '') + '</div>');
         if (!D.devices.length) {
-            $l.append('<div class="text-body-secondary small px-3 pb-3">' + (isSrv() ? 'Sledování uzlů meshcore-server zatím neumí.'
+            $l.append('<div class="text-body-secondary small px-3 pb-3">' + (isSrv() ? 'Žádná. Sledování zapneš v informacích o kontaktu (ikona ⓘ v hlavičce chatu) tlačítkem Sledovat.'
                 : 'Žádná. Sledování se zapíná v HA: MeshCore → Konfigurovat → Add Repeater Station / Add Tracked Client.') + '</div>');
         }
         devs.forEach(function (d) {
@@ -2885,7 +2911,8 @@
 
     function batterySeries(d) {
         var s = d.sensors || {}, out = [];
-        if (isSrv()) { return out; } // historii senzorů má jen Home Assistant
+        // v režimu meshcore-server má historii jen sledovaný uzel (senzory …_srv), ne companion
+        if (isSrv() && !(d.tracked && s.bat && /_srv$/.test(s.bat.id || ''))) { return out; }
         if (s.battery_percentage && s.battery_percentage.id) {
             out.push({ key: 'pct', label: '%', sensor: s.battery_percentage, yMin: 0, yMax: 100 });
         }
@@ -2920,6 +2947,7 @@
                 drawHistory($('#bat-chart'), h, { unit: ser.sensor.unit || ser.label, yMin: ser.yMin, yMax: ser.yMax, range: st.range });
                 var note = h.source === 'statistics'
                     ? (st.range === '1y' ? 'Denní průměry' : 'Hodinové průměry') + ' z dlouhodobých statistik HA, světlý pás = rozsah min–max.'
+                    : h.source === 'server' ? 'Hodnoty ze sledování na meshcore-serveru (dotaz jednou za ' + (S.trackInterval || 30) + ' min, historie 30 dní).'
                     : 'Přesné hodnoty z historie HA.';
                 if (h.source === 'history' && (st.range === '30d' || st.range === '1y')) {
                     note = 'Senzor nemá dlouhodobé statistiky – zobrazena jen historie, kterou HA drží (výchozí 10 dní).';
@@ -3262,6 +3290,13 @@
             html += row('Stav', d.online === true ? '<span class="text-success">online</span>' : d.online === false ? '<span class="text-danger">offline</span>' : 'neznámý') +
                 row('Poslední změna', esc(d.changed ? new Date(d.changed).toLocaleString('cs-CZ') + ' (' + fmtAgo(d.changed) + ')' : '–')) +
                 row('Klíč (prefix)', '<span class="font-monospace">' + esc(d.pk) + '</span>');
+            if (d.tracked) {
+                var tr = d.tracked;
+                html += row('Poslední dotaz', esc(tr.last_poll ? fmtAgo(tr.last_poll) : 'zatím ne')) +
+                    row('Další dotaz', esc(tr.next_poll ? new Date(tr.next_poll).toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' }) : '–')) +
+                    (tr.error ? row('Chyba', '<span class="text-danger">' + esc(tr.error) + '</span>' +
+                        (tr.failures > 1 ? ' <span class="small text-body-secondary">(' + tr.failures + '× po sobě, dotazy se zředí)</span>' : '')) : '');
+            }
             html += scopeRows(d.scopes);
             if (d.lat != null) {
                 html += row('Poloha', '<a target="_blank" rel="noopener" href="https://www.openstreetmap.org/?mlat=' + d.lat + '&mlon=' + d.lon +
@@ -3296,10 +3331,26 @@
         }
         var remote = kind === 'd' && d.type !== 1 && can('remote'); // repeater, room server, senzor (klienti CLI nemají)
         if (remote) { html += remotePanelHtml(); }
+        if (d.tracked) {
+            html += '<div class="d-flex gap-2 mt-3"><button class="btn btn-outline-secondary btn-sm" id="dev-poll"><i class="bi bi-arrow-repeat me-1"></i>Zjistit teď</button>' +
+                '<button class="btn btn-outline-danger btn-sm" id="dev-untrack"><i class="bi bi-eye-slash me-1"></i>Přestat sledovat</button></div>';
+        }
         if (d.conv && S.convs[d.conv]) {
             html += '<div class="d-grid mt-3"><button class="btn btn-primary" id="dev-open-chat"><i class="bi bi-chat-dots me-1"></i> Otevřít chat</button></div>';
         }
         showModal(d.name, html);
+        $('#dev-poll').on('click', function () {
+            var $b = $(this).prop('disabled', true);
+            api('track_poll', { pk: d.tracked.key }, 'POST').done(function (r) {
+                S.devices = r.devices; toast('Dotaz zařazen – výsledek se objeví za chvíli', 'secondary');
+                // odpověď uzlu přijde do pár desítek sekund – pak obnovit seznam
+                setTimeout(loadDevices, 10000); setTimeout(loadDevices, 30000);
+            }).fail(function (xhr) { toast(errText(xhr), 'danger'); }).always(function () { $b.prop('disabled', false); });
+        });
+        $('#dev-untrack').on('click', function () {
+            if (!confirm('Přestat sledovat ' + d.name + '? Smaže se i historie hodnot na serveru.')) { return; }
+            setTracking(d.tracked.key, false, function () { bootstrap.Modal.getOrCreateInstance('#info-modal').hide(); });
+        });
         if (remote) { initRemote(d); }
         if (batSeries.length) { initBatteryChart(batSeries); }
         $('#dev-open-chat').on('click', function () {
@@ -3706,6 +3757,7 @@
         S.selfName = r.self_name || null;
         S.caps = r.caps || {};
         S.reactQuick = r.reactions || null;
+        if (isSrv()) { setTimeout(loadDevices, 500); } // kvůli tlačítku Sledovat v informacích o kontaktu
         S.settings = r.settings || S.settings;
         S.patterns = r.patterns || [];
         $('#tabs .nav-link').removeClass('active').filter('[data-tab="' + S.tab + '"]').addClass('active');

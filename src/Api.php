@@ -198,6 +198,7 @@ final class Api
                 'lat'     => $c && $c['latitude'] !== null ? (float) $c['latitude'] : null,
                 'lon'     => $c && $c['longitude'] !== null ? (float) $c['longitude'] : null,
                 'scopes'  => $c && $c['scopes'] ? json_decode($c['scopes'], true) : null,
+                'tracked' => $d['tracked'] ?? null, // sledování v meshcore-serveru: klíč, poslední/další dotaz, chyba
             ] + $collect($pk10, $slug);
         }
         usort($devices, static fn($a, $b) => [$b['online'] === true, $a['name']] <=> [$a['online'] === true, $b['name']]);

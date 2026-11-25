@@ -224,7 +224,10 @@ Pak spusť migraci `sql/migrations/014_meshcore_server.sql` (u nové instalace n
 - **Regiony kanálů a kontaktů** drží server (region u kontaktu a „bez regionu“ vyžadují meshcore-server 0.13+).
 - **Reakce:** server zná čas odeslání zprávy, ze kterého se počítá otisk zprávy, proto jde reagovat jen
   v tomto režimu. V režimu HA se přijaté reakce k původní zprávě přiřadí podle času přijetí.
-- **Zatím chybí:** trace, zjištění cesty, import exportované karty kontaktu, sledování uzlů se senzory.
+- **Sledování uzlů** (meshcore-server 0.14+): v informacích o kontaktu tlačítko Sledovat. Server se repeaterů
+  a room serverů jednou za 30 min ptá na stav (baterie, šum, provoz), klientů na telemetrii. V Zařízeních je
+  vidět online/offline, hodnoty i graf baterie za 30 dní; tlačítkem Zjistit teď se server zeptá hned.
+- **Zatím chybí:** trace, zjištění cesty, import exportované karty kontaktu.
   Rozhraní je v tomto režimu skryje. Klíč kanálu ke sdílení vydá server
   jen tokenu s oprávněním `admin`.
 
