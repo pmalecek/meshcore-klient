@@ -16,11 +16,7 @@ use InvalidArgumentException;
 final class ServerApi
 {
     /** Akce, které meshcore-server zatím neumí. */
-    private const UNSUPPORTED = [
-        'POST contact_import'  => 'Import vizitky',
-        'POST path_discover'   => 'Zjištění cesty',
-        'POST trace'           => 'Trace',
-    ];
+    private const UNSUPPORTED = [];
 
     private McServer $srv;
 
@@ -36,8 +32,8 @@ final class ServerApi
     public static function capabilities(): array
     {
         return [
-            'backend' => 'server', 'remote' => true, 'room_login' => true, 'trace' => false,
-            'path_discover' => false, 'contact_import' => false, 'ha_devices' => false, 'traffic' => false,
+            'backend' => 'server', 'remote' => true, 'room_login' => true, 'trace' => true,
+            'path_discover' => true, 'contact_import' => true, 'ha_devices' => false, 'traffic' => false,
             'region_none' => true, 'react' => true, 'track' => true,
         ];
     }
@@ -67,6 +63,9 @@ final class ServerApi
                 'POST remote_status'   => $this->remoteStatus($input),
                 'POST remote_cmd'      => $this->remoteCmd($input),
                 'POST track'           => $this->track((string) ($input['pk'] ?? ''), !empty($input['on'])),
+                'POST trace'           => $this->trace((string) ($input['pk'] ?? '')),
+                'POST path_discover'   => $this->pathDiscover((string) ($input['pk'] ?? '')),
+                'POST contact_import'  => $this->contactImport((string) ($input['card'] ?? '')),
                 'POST track_poll'      => $this->trackPoll((string) ($input['pk'] ?? '')),
                 'GET history'          => $this->history((string) ($_GET['entity'] ?? ''), (string) ($_GET['range'] ?? '24h')),
                 default                => null,
@@ -167,6 +166,61 @@ final class ServerApi
         $r = $this->srv->post('/contacts/' . self::pk12($pk) . '/reset-path');
         $this->sync()->syncContacts();
         return [['ok' => true, 'result' => $r, 'conversations' => $this->api->conversations()], 200];
+    }
+
+    // ------------------------------------------------------------------ trace, cesta, vizitka (meshcore-server 0.15+)
+
+    /** Trace k uzlu – tvar odpovědi jako služba trace v HA: {trace: {hops, path[{hash, snr}], round_trip_ms, final_snr}} */
+    private function trace(string $pk): array
+    {
+        set_time_limit(120);
+        try {
+            $r = $this->srv->post('/contacts/' . self::pk12($pk) . '/trace', null, 110);
+        } catch (McServerException $e) {
+            if ($e->getCode() === 404) {
+                return [['trace' => null, 'error' => 'Trace vyžaduje meshcore-server 0.15 nebo novější.'], 200];
+            }
+            return [['trace' => null, 'error' => $e->getMessage()], 200];
+        }
+        if (!empty($r['discovered'])) {
+            $this->sync()->syncContacts(); // cesta se při trace zjistila – companion ji má uloženou
+        }
+        return [['trace' => [
+            'hops'          => $r['hops'] ?? null,
+            'path'          => $r['path'] ?? [],
+            'round_trip_ms' => $r['round_trip_ms'] ?? null,
+            'final_snr'     => $r['final_snr'] ?? null,
+        ], 'error' => null], 200];
+    }
+
+    private function pathDiscover(string $pk): array
+    {
+        set_time_limit(120);
+        try {
+            $r = $this->srv->post('/contacts/' . self::pk12($pk) . '/path-discovery', null, 90);
+        } catch (McServerException $e) {
+            throw new InvalidArgumentException('Cestu se nepodařilo zjistit: ' . ($e->getCode() === 404
+                ? 'vyžaduje meshcore-server 0.15 nebo novější' : $e->getMessage()));
+        }
+        $this->sync()->syncContacts();
+        return [['ok' => true, 'result' => $r, 'conversations' => $this->api->conversations()], 200];
+    }
+
+    private function contactImport(string $card): array
+    {
+        $hex = strtolower(preg_replace('/\s+/', '', $card));
+        $hex = preg_replace('#^meshcore://#', '', $hex);
+        if (!preg_match('/^[0-9a-f]{100,2000}$/', $hex) || strlen($hex) % 2) {
+            throw new InvalidArgumentException('Karta kontaktu musí být hex řetězec (export z MeshCore)');
+        }
+        try {
+            $this->srv->post('/contacts/import-card', ['card' => $hex], 60);
+        } catch (McServerException $e) {
+            throw new InvalidArgumentException('Companion kartu nepřijal: ' . ($e->getCode() === 404
+                ? 'import vyžaduje meshcore-server 0.15 nebo novější' : $e->getMessage()));
+        }
+        $this->sync()->syncContacts();
+        return [['ok' => true, 'conversations' => $this->api->conversations()], 200];
     }
 
     // ------------------------------------------------------------------ sledování uzlů
