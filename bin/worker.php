@@ -205,6 +205,12 @@ while ($running) {
                     if (str_starts_with($what, 'dmreset:')) {
                         continue;
                     }
+                    if (str_starts_with($what, 'dmscope:')) {
+                        if (empty($m['success'])) {
+                            logmsg('Nastavení regionu pro DM selhalo: ' . json_encode($m['error'] ?? null, JSON_UNESCAPED_UNICODE));
+                        }
+                        continue;
+                    }
                     if (str_starts_with($what, 'sq:')) {
                         $sq->onResult((int) substr($what, 3), !empty($m['success']), (string) ($m['error']['message'] ?? ''));
                         continue;
@@ -248,7 +254,8 @@ while ($running) {
                         'id' => $rid, 'type' => 'call_service', 'domain' => 'meshcore', 'service' => 'execute_command',
                         'service_data' => $data, 'return_response' => true,
                     ]);
-                    $pending[$rid] = ($a['kind'] === 'reset' ? 'dmreset:' : 'dm:') . $a['qid'];
+                    $pending[$rid] = ['reset' => 'dmreset:', 'scope' => 'dmscope:'][$a['kind']] ?? 'dm:';
+                    $pending[$rid] .= $a['qid'];
                     if ($verbose) {
                         logmsg('DM: ' . $a['command']);
                     }

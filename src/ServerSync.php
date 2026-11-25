@@ -71,6 +71,10 @@ final class ServerSync
         $on = [];
         $off = [];
         foreach ($items as $c) {
+            // region kontaktu drží server (meshcore-server 0.13+) – klient ho jen zobrazuje (conv_settings.scope)
+            if (array_key_exists('region', $c)) {
+                $this->setScopeConv('d:' . substr(strtolower((string) $c['public_key']), 0, 12), $c['region']);
+            }
             if (!empty($c['on_device'])) {
                 $on[] = self::haContact($c);
             } else {
@@ -102,6 +106,9 @@ final class ServerSync
     {
         if (empty($c['public_key'])) {
             return;
+        }
+        if (array_key_exists('region', $c)) {
+            $this->setScopeConv('d:' . substr(strtolower((string) $c['public_key']), 0, 12), $c['region']);
         }
         if (!empty($c['on_device'])) {
             $this->store->syncContacts([self::haContact($c)]);
@@ -143,8 +150,13 @@ final class ServerSync
 
     private function setScope(int $idx, mixed $region): void
     {
+        $this->setScopeConv("c:$idx", $region);
+    }
+
+    /** Region ze serveru (#plzen, *, null) -> conv_settings.scope (plzen, *, NULL) */
+    private function setScopeConv(string $conv, mixed $region): void
+    {
         $r = is_string($region) && trim($region) !== '' ? ltrim(trim($region), '#') : null;
-        $conv = "c:$idx";
         if ($r === null) {
             $this->db->query('UPDATE conv_settings SET scope = NULL WHERE conv_key = ?', [$conv]);
             return;

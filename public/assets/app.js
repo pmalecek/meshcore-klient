@@ -384,7 +384,8 @@
         if (c.kind === 'channel') {
             sub = 'Kanál #' + c.idx + (scopeSetting(c.conv) ? ' · 📍 odesílá se ' + scopeSetting(c.conv) : '');
         } else {
-            sub = (TYPE_NAMES[c.type] || 'Kontakt') + (scopeLabel(c.scopes) ? ' · ' + scopeLabel(c.scopes) : '') + ' · ' + c.pk +
+            sub = (TYPE_NAMES[c.type] || 'Kontakt') + (scopeLabel(c.scopes) ? ' · ' + scopeLabel(c.scopes) : '') +
+                (scopeSetting(c.conv) ? ' · 📍 flood ' + scopeSetting(c.conv) : '') + ' · ' + c.pk +
                 (c.last_advert ? ' · advert ' + fmtAgo(c.last_advert) : '');
         }
         $('#chat-subtitle').text(sub);
@@ -1766,10 +1767,14 @@
                 '<div class="d-flex flex-wrap align-items-center gap-2 mb-2"><label class="small text-body-secondary" for="cs-retention">Uchovávat</label>' +
                 '<select class="form-select form-select-sm w-auto" id="cs-retention">' + retentionOptions(cs.retention, true) + '</select></div>' +
                 '<button type="button" class="btn btn-sm btn-outline-danger" id="cs-clear"><i class="bi bi-trash me-1"></i>Smazat historii konverzace</button>' +
-                (c.kind === 'channel' ?
+                (c.kind === 'channel' || c.kind === 'contact' ?
                     '<h6 class="mt-4">Region pro odesílání</h6>' +
-                    '<div class="small text-body-secondary mb-2">Zprávy do tohoto kanálu se pošlou floodem omezeným na region (scope) – ' +
-                    'repeatery mimo region je nepřepošlou. Platí jen pro odeslání, příjem se nemění.</div>' +
+                    '<div class="small text-body-secondary mb-2">' + (c.kind === 'channel'
+                        ? 'Zprávy do tohoto kanálu se pošlou floodem omezeným na region (scope) – repeatery mimo region je nepřepošlou. '
+                        : 'Použije se, když companion posílá ' + (c.type === 3 ? 'do roomu' : c.type === 2 ? 'na repeater' : 'zprávu') +
+                          ' floodem: cesta ještě není známá, po resetu cesty a u posledních pokusů o doručení' +
+                          (c.type === 2 || c.type === 3 ? ', i přihlášení a správa uzlu' : '') + '. Se známou cestou se region nepoužije. ') +
+                    'Platí jen pro odeslání, příjem se nemění.</div>' +
                     '<div class="d-flex flex-wrap align-items-center gap-2 mb-1">' +
                     '<select class="form-select form-select-sm w-auto" id="cs-scope-mode">' +
                     '<option value="">Výchozí companionu</option>' + (can('region_none') ? '<option value="*">Bez regionu (všude)</option>' : '') + '<option value="r">Region…</option></select>' +
@@ -1777,7 +1782,8 @@
                     '<input type="text" class="form-control" id="cs-scope" list="cs-scope-list" maxlength="30" placeholder="např. cz" autocomplete="off" style="max-width:10rem">' +
                     '<button class="btn btn-outline-primary" type="button" id="cs-scope-save">Uložit</button></div>' +
                     '<datalist id="cs-scope-list">' + knownScopes().map(function (x) { return '<option value="' + esc(x) + '">'; }).join('') + '</datalist></div>' +
-                    '<div class="small text-body-secondary mb-3">Záleží na velikosti písmen. Region musí znát repeatery v okolí, jinak zpráva nedojde nikam.</div>' +
+                    '<div class="small text-body-secondary mb-3">Záleží na velikosti písmen. Region musí znát repeatery v okolí, jinak zpráva nedojde nikam.</div>' : '') +
+                (c.kind === 'channel' ?
                     '<h6 class="mt-4">Kanál</h6><div class="small text-body-secondary mb-2">Slot ' + c.idx + ' v companionu.</div>' +
                     '<div class="d-flex flex-wrap gap-2"><button type="button" class="btn btn-sm btn-outline-secondary" id="cs-secret"><i class="bi bi-key me-1"></i>Zobrazit klíč pro sdílení</button>' +
                     '<button type="button" class="btn btn-sm btn-danger" id="cs-remove"><i class="bi bi-x-circle me-1"></i>Odebrat kanál</button></div>' +
@@ -1797,7 +1803,8 @@
             $('#cs-scope-box').toggleClass('d-none', $('#cs-scope-mode').val() !== 'r');
             var saveScope = function (v) {
                 saveConv(conv, { scope: v }).done(function () {
-                    toast(v ? 'Zprávy do kanálu se pošlou ' + (v === '*' ? 'bez regionu' : 'do regionu #' + String(v).replace(/^#/, '')) : 'Region: výchozí companionu', 'secondary');
+                    toast(v ? (c.kind === 'channel' ? 'Zprávy do kanálu' : 'Flood ke kontaktu') + ' se pošl' + (c.kind === 'channel' ? 'ou ' : 'e ') +
+                        (v === '*' ? 'bez regionu' : 'do regionu #' + String(v).replace(/^#/, '')) : 'Region: výchozí companionu', 'secondary');
                 });
             };
             $('#cs-scope-mode').on('change', function () {

@@ -39,7 +39,7 @@ final class ServerApi
         return [
             'backend' => 'server', 'remote' => true, 'room_login' => true, 'trace' => false,
             'path_discover' => false, 'contact_import' => false, 'ha_devices' => false, 'traffic' => false,
-            'region_none' => false, 'react' => true,
+            'region_none' => true, 'react' => true,
         ];
     }
 
@@ -237,19 +237,31 @@ final class ServerApi
         throw new InvalidArgumentException('Klíč kanálu se nepodařilo načíst');
     }
 
-    /** Region kanálu drží server (PATCH /channels/{idx}); ostatní nastavení zpracuje api.php. */
+    /**
+     * Region kanálu (PATCH /channels/{idx}) a kontaktu (PATCH /contacts/{key}, meshcore-server 0.13+) drží server;
+     * ostatní nastavení a uložení do conv_settings (zobrazení) zařídí api.php.
+     */
     private function convSettings(array $input): ?array
     {
         $conv = (string) ($input['conv'] ?? '');
-        if (!array_key_exists('scope', $input) || !preg_match('/^c:(\d+)$/', $conv, $m)) {
+        if (!array_key_exists('scope', $input) || !preg_match('/^(c|d):([0-9a-f]+)$/', $conv, $m)) {
             return null;
         }
         $scope = Settings::normScope($input['scope']);
-        if ($scope === '*') {
-            throw new InvalidArgumentException('„Bez regionu“ meshcore-server nepodporuje – zvol výchozí nebo konkrétní region.');
+        $region = $scope === null ? null : ($scope === '*' ? '*' : '#' . $scope);
+        if ($m[1] === 'c') {
+            $this->srv->patch('/channels/' . (int) $m[2], ['region' => $region]);
+            return null;
         }
-        $this->srv->patch('/channels/' . (int) $m[1], ['region' => $scope === null ? null : '#' . $scope]);
-        return null; // uložení do conv_settings (zobrazení) zařídí api.php
+        try {
+            $c = $this->srv->patch('/contacts/' . $m[2], ['region' => $region]);
+        } catch (McServerException $e) {
+            throw new InvalidArgumentException('Region kontaktu se nepodařilo uložit: ' . $e->getMessage());
+        }
+        if (!is_array($c) || !array_key_exists('region', $c)) {
+            throw new InvalidArgumentException('Region u kontaktu vyžaduje meshcore-server 0.13 nebo novější.');
+        }
+        return null;
     }
 
     /** Přečteno: uložit v klientu (api.php) a poslat i na server, ať se počty srovnají na všech zařízeních. */

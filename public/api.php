@@ -38,6 +38,29 @@ function haEntry(array $cfg): array
 }
 
 /**
+ * execute_command k uzlu s regionem kontaktu (conv_settings.scope konverzace d:…): region se nastaví jen
+ * pro tento požadavek a pak se vrátí výchozí. Uplatní se u paketů odeslaných floodem (uzel bez známé cesty).
+ */
+function haNodeCommand(HaRest $ha, array $cfg, string $pk, string $command, int $timeout): mixed
+{
+    $scope = Settings::scopeFor(db(), 'd:' . substr(strtolower($pk), 0, 12));
+    if ($scope !== null) {
+        $ha->callService('meshcore', 'execute_command', ['command' => DmSender::scopeCommand($scope)] + haEntry($cfg), true);
+    }
+    try {
+        return $ha->callService('meshcore', 'execute_command', ['command' => $command] + haEntry($cfg), true, $timeout);
+    } finally {
+        if ($scope !== null) {
+            try {
+                $ha->callService('meshcore', 'execute_command', ['command' => DmSender::scopeCommand(null)] + haEntry($cfg), true);
+            } catch (Throwable) {
+                // výchozí region se obnoví nejpozději s dalším odesláním s regionem
+            }
+        }
+    }
+}
+
+/**
  * Přihlášení k repeateru / room serveru přes companion. Uzel, který companion nezná
  * (jen „slyšený“), nejdřív přidá do kontaktů companionu – bez toho se přihlásit nedá.
  * Prázdné heslo = host (nebo admin, pokud je companion v ACL uzlu).
@@ -65,8 +88,7 @@ function remoteLogin(HaRest $ha, array $cfg, string $pk, string $pw): array
         $added = true;
     }
     $q = static fn(string $v): string => json_encode($v, JSON_UNESCAPED_UNICODE);
-    $login = $ha->callService('meshcore', 'execute_command',
-        ['command' => 'send_login_sync(' . $q($known) . ', ' . $q($pw) . ')'] + haEntry($cfg), true, 100);
+    $login = haNodeCommand($ha, $cfg, $known, 'send_login_sync(' . $q($known) . ', ' . $q($pw) . ')', 100);
     $ev = strtolower((string) ($login['event'] ?? $login['type'] ?? ''));
     if (!is_array($login) || isset($login['error']) || str_contains($ev, 'fail')) {
         $e = is_array($login) ? (string) ($login['error'] ?? $ev) : '';
@@ -406,8 +428,7 @@ try {
             $rl = remoteLogin($ha, $cfg, (string) ($input['pk'] ?? ''), $pw);
             $q = static fn(string $v): string => json_encode($v, JSON_UNESCAPED_UNICODE);
             if ($action === 'remote_status') {
-                $r = $ha->callService('meshcore', 'execute_command',
-                    ['command' => 'req_status_sync(' . $q($rl['pk']) . ', min_timeout=15)'] + haEntry($cfg), true, 120);
+                $r = haNodeCommand($ha, $cfg, $rl['pk'], 'req_status_sync(' . $q($rl['pk']) . ', min_timeout=15)', 120);
                 if (!is_array($r) || isset($r['error']) || !isset($r['uptime'])) {
                     $e = is_array($r) ? ($r['error'] ?? '') : '';
                     out(['error' => $e === 'no_response' ? 'Uzel na žádost o stav neodpověděl (mimo dosah nebo vytížená síť).'
@@ -422,8 +443,7 @@ try {
             $conv = 'd:' . substr($rl['pk'], 0, 12);
             $since = (int) (db()->value('SELECT MAX(id) FROM messages') ?? 0);
             foreach ($plan['cli'] as $line) {
-                $r = $ha->callService('meshcore', 'execute_command',
-                    ['command' => 'send_cmd(' . $q($rl['pk']) . ', ' . $q($line) . ')'] + haEntry($cfg), true, 60);
+                $r = haNodeCommand($ha, $cfg, $rl['pk'], 'send_cmd(' . $q($rl['pk']) . ', ' . $q($line) . ')', 60);
                 if (isset($r['error'])) {
                     out(['error' => 'Příkaz se nepodařilo odeslat: ' . $r['error']], 400);
                 }

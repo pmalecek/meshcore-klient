@@ -83,8 +83,8 @@ final class Settings
             $this->db->query('UPDATE conv_settings SET retention_days = ? WHERE conv_key = ?', [$r, $conv]);
         }
         if (array_key_exists('scope', $data)) {
-            if (!str_starts_with($conv, 'c:')) {
-                throw new InvalidArgumentException('Region jde nastavit jen u kanálu');
+            if (!str_starts_with($conv, 'c:') && !str_starts_with($conv, 'd:')) {
+                throw new InvalidArgumentException('Region jde nastavit jen u kanálu nebo kontaktu');
             }
             $this->db->query('UPDATE conv_settings SET scope = ? WHERE conv_key = ?', [self::normScope($data['scope']), $conv]);
         }

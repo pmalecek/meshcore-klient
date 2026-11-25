@@ -40,6 +40,9 @@ Rozhraní je v češtině.
   - Verze firmwaru companionu.
 - **Kanály:** přidání (hashtagový, Public, soukromý s klíčem i nový), odebrání a sdílení klíče.
   U každého kanálu jde nastavit region (flood scope), do kterého se zprávy odesílají.
+- **Region u kontaktu** (DM, room server, repeater): použije se, když companion posílá kontaktu floodem
+  (cesta není známá, po resetu cesty, poslední pokusy o doručení) a u přihlášení a správy uzlu.
+  Zprávy se známou cestou region nepoužívají.
 - **Vzhled:**
   - Světlý, tmavý, podle systému nebo podle slunce.
   - Pozadí chatů (barva, vzor, vlastní obrázek).
@@ -218,10 +221,11 @@ Pak spusť migraci `sql/migrations/014_meshcore_server.sql` (u nové instalace n
 - **Room servery a repeatery** (meshcore-server 0.11+): přihlášení do roomu (heslo si může uložit server
   a po výpadku se přihlásí sám), příspěvky se jmény autorů, stav uzlu a příkazy (verze, čas, jméno, poloha,
   advert, restart). Příkazy na uzlu vyžadují token s oprávněním `admin`.
+- **Regiony kanálů a kontaktů** drží server (region u kontaktu a „bez regionu“ vyžadují meshcore-server 0.13+).
 - **Reakce:** server zná čas odeslání zprávy, ze kterého se počítá otisk zprávy, proto jde reagovat jen
   v tomto režimu. V režimu HA se přijaté reakce k původní zprávě přiřadí podle času přijetí.
-- **Zatím chybí:** trace, zjištění cesty, import exportované karty kontaktu, sledování uzlů se senzory
-  a „bez regionu“ u kanálu. Rozhraní je v tomto režimu skryje. Klíč kanálu ke sdílení vydá server
+- **Zatím chybí:** trace, zjištění cesty, import exportované karty kontaktu, sledování uzlů se senzory.
+  Rozhraní je v tomto režimu skryje. Klíč kanálu ke sdílení vydá server
   jen tokenu s oprávněním `admin`.
 
 ## Struktura

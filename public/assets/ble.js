@@ -623,8 +623,10 @@
             }
             return prep.then(function () {
                 return cmd(function (c) {
-                    return request(c, function () { return c.sendCommandSendTxtMsg(C().TxtTypes.Plain, long ? Math.min(n, 3) : n, ts, pub, m.body); },
-                        [C().ResponseCodes.Sent], [C().ResponseCodes.Err]);
+                    return withScope(c, flood ? contactScope(m.conv.slice(2)) : null, function () {
+                        return request(c, function () { return c.sendCommandSendTxtMsg(C().TxtTypes.Plain, long ? Math.min(n, 3) : n, ts, pub, m.body); },
+                            [C().ResponseCodes.Sent], [C().ResponseCodes.Err]);
+                    });
                 });
             }).then(function (r) {
                 acks[r.expectedAckCrc] = { id: m.id, attempt: n };
@@ -659,21 +661,27 @@
         });
     }
 
+    // Provede fn() s regionem (pod zámkem cmd); region se pak vrátí na výchozí companionu.
+    function withScope(c, scope, fn) {
+        if (!scope) { return fn(); }
+        return setScope(c, scope).catch(function () {
+            throw err('Companion nepodporuje region (flood scope) – aktualizuj firmware, nebo region zruš.');
+        }).then(function () {
+            return fn().then(function (r) { return setScope(c, null).catch(function () {}).then(function () { return r; }); },
+                function (e) { return setScope(c, null).catch(function () {}).then(function () { throw e; }); });
+        });
+    }
+    // region kontaktu (nastavení konverzace d:…) – platí pro pakety odeslané floodem
+    function contactScope(pk) { return ((D.settings.convs['d:' + String(pk || '').slice(0, 12)] || {}).scope) || null; }
+
     function sendChannel(m, idx) {
         var ts = Math.floor(m.ts / 1000);
         var scope = ((D.settings.convs['c:' + idx] || {}).scope) || null;
         expectOutgoingChannel(m, idx, ts);
         return cmd(function (c) {
-            var send = function () {
+            return withScope(c, scope, function () {
                 return request(c, function () { return c.sendCommandSendChannelTxtMsg(C().TxtTypes.Plain, idx, ts, m.body); },
                     [C().ResponseCodes.Ok], [C().ResponseCodes.Err]);
-            };
-            if (!scope) { return send(); }
-            return setScope(c, scope).catch(function () {
-                throw err('Companion nepodporuje region (flood scope) – aktualizuj firmware, nebo region u kanálu zruš.');
-            }).then(function () {
-                return send().then(function (r) { return setScope(c, null).catch(function () {}).then(function () { return r; }); },
-                    function (e) { return setScope(c, null).catch(function () {}).then(function () { throw e; }); });
             });
         }).then(function () { m.status = 'sent'; saveMsg(m); scheduleHeard(m); });
     }
@@ -949,10 +957,12 @@
 
     // ---------------------------------------------------------------- dotazy na uzly (login, stav, trace, cesta)
     // Odeslání příkazu přes frontu (čeká na „Sent“), samotná odpověď z mesh sítě se čeká mimo frontu.
-    function sentThenWait(sendFn, waitFn, minWait) {
+    function sentThenWait(sendFn, waitFn, minWait, scope) {
         var waiter = waitFn();
         return cmd(function (c) {
-            return request(c, function () { return sendFn(c); }, [C().ResponseCodes.Sent], [C().ResponseCodes.Err]);
+            return withScope(c, scope || null, function () {
+                return request(c, function () { return sendFn(c); }, [C().ResponseCodes.Sent], [C().ResponseCodes.Err]);
+            });
         }).then(function (r) {
             var t = Math.max(minWait || 10000, (r.estTimeout || 0) + 5000);
             return Promise.race([waiter.promise, sleep(t).then(function () { waiter.cancel(); throw new Error('timeout'); })]);
@@ -1038,7 +1048,7 @@
             var w = waitPush(C().PushCodes.LoginSuccess, function (d) { return hex(d.pubKeyPrefix) === pre ? d : undefined; });
             var both = Promise.race([w.promise, fail.promise.then(function () { throw new Error('login_failed'); })]);
             return { promise: both, cancel: function () { w.cancel(); fail.cancel(); } };
-        }, 15000).then(function (d) {
+        }, 15000, contactScope(pre)).then(function (d) {
             fail.cancel();
             return { admin: (d.reserved & 1) === 1 };
         }, function (e) {
@@ -1078,7 +1088,7 @@
             if (wantStatus) {
                 return sentThenWait(function (c) { return c.sendCommandSendStatusReq(pub); }, function () {
                     return waitPush(C().PushCodes.StatusResponse, function (d) { return hex(d.pubKeyPrefix) === pre ? d : undefined; });
-                }, 15000).then(function (d) {
+                }, 15000, contactScope(pre)).then(function (d) {
                     return { ok: true, status: parseStatus(d.statusData), admin: admin, added: info.added, at: iso(now()) };
                 }, function (e) {
                     if (e.message === 'timeout') { throw err('Uzel na žádost o stav neodpověděl (mimo dosah nebo vytížená síť).'); }
@@ -1090,8 +1100,10 @@
                 return chain.then(function () {
                     var ts = Math.floor(now() / 1000), reply = waitCli(info.contact.pk, cmdName === 'reboot' ? 3000 : 15000);
                     return cmd(function (c) {
-                        return request(c, function () { return c.sendCommandSendTxtMsg(C().TxtTypes.CliData, 0, ts, pub, line); },
-                            [C().ResponseCodes.Sent], [C().ResponseCodes.Err]);
+                        return withScope(c, contactScope(pre), function () {
+                            return request(c, function () { return c.sendCommandSendTxtMsg(C().TxtTypes.CliData, 0, ts, pub, line); },
+                                [C().ResponseCodes.Sent], [C().ResponseCodes.Err]);
+                        });
                     }).then(function () { return reply; }).then(function (text) { if (text) { replies.push(text); } });
                 });
             }, Promise.resolve()).then(function () {

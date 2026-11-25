@@ -13,6 +13,9 @@ namespace MeshClient;
  * aby zbyl kredit na nové zprávy. Vždy proběhne aspoň 1 pokus (a 1 floodem po selhání cesty).
  * Nové zprávy a čekající zprávy do kanálů mají přednost před opakováním.
  *
+ * Region kontaktu (conv_settings.scope konverzace d:…) se nastaví jen pro pokusy floodem:
+ * set_flood_scope před odesláním a návrat výchozího hned po něm (zprávy se známou cestou region nepoužívají).
+ *
  * Všechny pokusy mají stejnou časovou značku a rostoucí číslo pokusu, takže je příjemce
  * pozná jako opakování téže zprávy. Řídí to worker (bin/worker.php) přes frontu dm_queue.
  */
@@ -77,11 +80,27 @@ final class DmSender
             if ($attempt > 3 && strlen((string) $q['body']) > 158) {
                 $attempt = 3;
             }
+            $scope = (int) $q['flood'] === 1 ? Settings::scopeFor($this->db, 'd:' . $q['pk']) : null;
+            if ($scope !== null) {
+                $out[] = ['qid' => $qid, 'kind' => 'scope', 'command' => self::scopeCommand($scope)];
+            }
             $out[] = ['qid' => $qid, 'kind' => 'send',
                 'command' => 'send_msg(' . $q2((string) $q['pk']) . ', ' . $q2((string) $q['body']) . ', ' . (int) $q['ts'] . ', attempt=' . $attempt . ')'];
+            if ($scope !== null) {
+                $out[] = ['qid' => $qid, 'kind' => 'scope', 'command' => self::scopeCommand(null)];
+            }
             $this->db->query("UPDATE dm_queue SET state = 'inflight' WHERE msg_id = ?", [$qid]);
         }
         return $out;
+    }
+
+    /**
+     * Příkaz execute_command pro region: '#plzen', '*' (bez regionu), null = vrátit výchozí region companionu.
+     * (Knihovna meshcore bere '0' jako návrat k výchozímu.)
+     */
+    public static function scopeCommand(?string $scope): string
+    {
+        return 'set_flood_scope(' . json_encode($scope ?? '0', JSON_UNESCAPED_UNICODE) . ')';
     }
 
     /** Výsledek execute_command send_msg (MSG_SENT s očekávaným ACK). */
