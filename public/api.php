@@ -393,7 +393,9 @@ try {
                 out(['error' => 'Neplatný klíč'], 400);
             }
             $ha = HaRest::fromConfig($cfg['ha']);
-            $cmd = ($action === 'path_reset' ? 'reset_path ' : 'send_path_discovery_sync ') . $pk12;
+            // zjištění cesty: knihovna by jinak čekala jen podle odhadu companionu (často pár sekund),
+            // odpověď floodem tam i zpět ale běžně trvá déle – čekat aspoň 30 s
+            $cmd = $action === 'path_reset' ? 'reset_path ' . $pk12 : 'send_path_discovery_sync("' . $pk12 . '", min_timeout=30)';
             $r = $ha->callService('meshcore', 'execute_command', ['command' => $cmd] + haEntry($cfg), true, 100);
             if (isset($r['error'])) {
                 out(['error' => ($action === 'path_reset' ? 'Cestu se nepodařilo resetovat: ' : 'Cestu se nepodařilo zjistit: ') . $r['error']], 400);
@@ -517,7 +519,7 @@ try {
                 out(['error' => 'Neplatný klíč'], 400);
             }
             $ha = HaRest::fromConfig($cfg['ha']);
-            $r = $ha->callService('meshcore', 'trace', ['pubkey_prefix' => $pk12, 'timeout' => 30] + haEntry($cfg), true, 110);
+            $r = $ha->callService('meshcore', 'trace', ['pubkey_prefix' => $pk12, 'timeout' => 60] + haEntry($cfg), true, 110); // HA čeká nejvýš 60 s (+ až 30 s hledání cesty)
             out(['trace' => $r['trace'] ?? null, 'error' => $r['error'] ?? null]);
 
         case 'POST advert':
