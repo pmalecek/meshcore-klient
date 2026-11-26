@@ -162,6 +162,12 @@ final class MessageStore
         $name = $this->db->value('SELECT name FROM contacts WHERE pubkey_prefix LIKE ? LIMIT 1', [$item['author'] . '%']);
         $this->db->query('UPDATE messages SET author_pk = ?, sender_name = ? WHERE id = ?',
             [$item['author'], $name ?: $item['author'], $id]);
+        // Duplicita se při uložení nepoznala – zpráva měla jako odesílatele room server, autor se dozvěděl až teď.
+        // Opakovaný příspěvek téhož autora (např. když ho jeho aplikace poslala vícekrát) se připojí k původnímu.
+        $row = $this->db->one('SELECT id, conv_key, direction, sender_name, body, msg_ts FROM messages WHERE id = ? AND dup_of IS NULL', [$id]);
+        if ($row) {
+            $this->linkDuplicate($row);
+        }
         return true;
     }
 
