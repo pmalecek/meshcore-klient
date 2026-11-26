@@ -274,7 +274,7 @@ try {
             if (!Api::validConv($conv)) {
                 out(['error' => 'Neplatná konverzace'], 400);
             }
-            $settings->updateConv($conv, array_intersect_key($input, array_flip(['color', 'bg', 'fav', 'retention', 'scope'])));
+            $settings->updateConv($conv, array_intersect_key($input, array_flip(['color', 'bg', 'fav', 'retention', 'scope', 'number', 'number_next'])));
             if (array_key_exists('retention', $input)) {
                 (new Retention(db()))->cleanup($settings->retention(), true);
             }
@@ -662,6 +662,9 @@ try {
             if ($text === '') {
                 out(['error' => 'Prázdná zpráva'], 400);
             }
+            $resendOf = (int) ($input['resend_of'] ?? 0);
+            // číslování DM („[12] text“) – ne u „odeslat znovu“, text už číslo má
+            [$text, $number] = $resendOf > 0 || !empty($input['raw']) || !Api::validConv($conv) ? [$text, null] : Settings::numbered(db(), $conv, $text);
             if (mb_strlen($text) > $cfg['app']['message_max_len']) {
                 out(['error' => 'Zpráva je příliš dlouhá'], 400);
             }
@@ -669,7 +672,6 @@ try {
             if (strlen($text) > $limit) {
                 out(['error' => 'Zpráva má ' . strlen($text) . ' B, limit je ' . $limit . ' B.'], 400);
             }
-            $resendOf = (int) ($input['resend_of'] ?? 0);
             $resendRoot = $resendOf > 0 ? db()->value("SELECT COALESCE(dup_of, id) FROM messages WHERE id = ? AND conv_key = ? AND direction = 'out'", [$resendOf, $conv]) : null;
             [$t, $id] = explode(':', $conv, 2);
 
@@ -689,7 +691,8 @@ try {
                     db()->query('UPDATE messages SET dup_count = dup_count + 1 WHERE id = ?', [(int) $resendRoot]);
                 }
                 (new DmSender(db()))->enqueue($msgId, $id, $text, time());
-                out(['ok' => true, 'id' => $msgId]);
+                Settings::numberUsed(db(), $conv, $number);
+                out(['ok' => true, 'id' => $msgId, 'number' => $number]);
             }
 
             // „odeslat znovu“ – worker novou zprávu připojí k původní

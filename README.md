@@ -40,6 +40,8 @@ Rozhraní je v češtině.
   - Verze firmwaru companionu.
 - **Kanály:** přidání (hashtagový, Public, soukromý s klíčem i nový), odebrání a sdílení klíče.
   U každého kanálu jde nastavit region (flood scope), do kterého se zprávy odesílají.
+- **Číslování DM** (volitelně v nastavení konverzace): odesílané zprávy dostanou předponu „[1]“, „[2]“…
+  Když čísluje i protistrana, chat upozorní na její zprávy, které nedorazily (mezera v řadě).
 - **Region u kontaktu** (DM, room server, repeater): použije se, když companion posílá kontaktu floodem
   (cesta není známá, po resetu cesty, poslední pokusy o doručení) a u přihlášení a správy uzlu.
   Zprávy se známou cestou region nepoužívají.

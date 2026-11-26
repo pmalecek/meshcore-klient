@@ -419,9 +419,24 @@
                 (reacts[m.reaction.of] = reacts[m.reaction.of] || []).push(m);
             }
         });
+        // číslování DM: mezera v číslech příchozích zpráv = zpráva protistrany nedorazila
+        var numbered = S.current && S.current.charAt(0) === 'd' && convSet(S.current).number, lastIn = null;
         ids.forEach(function (id) {
             var m = S.messages[id];
             if (m.reaction && (m.dup_of || (m.reaction.of && S.messages[m.reaction.of]))) { return; }
+            if (numbered && m.dir === 'in' && !m.dup_of && !m.reaction) {
+                var mm = /^\[(\d{1,5})\]\s/.exec(m.body || '');
+                if (mm) {
+                    var num = +mm[1];
+                    if (lastIn !== null && num > lastIn + 1) {
+                        var miss = num - lastIn - 1;
+                        $list.append($('<div class="msg-gap">').append($('<span>').html('<i class="bi bi-exclamation-triangle me-1"></i>' +
+                            (miss === 1 ? 'Chybí zpráva [' + (lastIn + 1) + '] – nedorazila'
+                                : 'Chybí zprávy [' + (lastIn + 1) + ']–[' + (num - 1) + '] (' + miss + ') – nedorazily'))));
+                    }
+                    lastIn = num; // menší číslo = protistrana začala znovu
+                }
+            }
             var day = new Date(m.ts).toDateString();
             if (day !== lastDay) {
                 $list.append('<div class="day-sep"><span>' + esc(fmtDay(m.ts)) + '</span></div>');
@@ -1059,15 +1074,21 @@
     function byteLimit(conv) {
         return conv && conv.charAt(0) === 'c' ? 160 - utf8Len((S.selfName || '') + ': ') : 160;
     }
+    // číslování DM: předpona „[12] “, kterou přidá server (Settings::numbered)
+    function numberPrefix(conv) {
+        var cs = convSet(conv);
+        return conv && conv.charAt(0) === 'd' && cs.number ? '[' + (cs.number_next || 1) + '] ' : '';
+    }
     function tooLong(conv, text) {
-        var t = text.trim(), b = utf8Len(t), lim = byteLimit(conv);
+        var t = text.trim(), b = utf8Len(numberPrefix(conv) + t), lim = byteLimit(conv);
         if (Array.from(t).length > S.maxLen) { return 'Zpráva je delší než ' + S.maxLen + ' znaků.'; }
         return b > lim ? 'Zpráva má ' + b + ' B, limit je ' + lim + ' B.' : null;
     }
 
     function updateCount() {
         var v = $('#msg-input').val(), n = Array.from(v).length, over = !!tooLong(S.current, v);
-        $('#char-count').text(n + ' / ' + S.maxLen + (n ? ' · ' + utf8Len(v) + ' B' : ''))
+        var pre = numberPrefix(S.current);
+        $('#char-count').text((pre ? pre.trim() + ' ' : '') + n + ' / ' + S.maxLen + (n ? ' · ' + utf8Len(pre + v.trim()) + ' B' : ''))
             .toggleClass('over', over);
         $('#btn-send').prop('disabled', !v.trim() || over);
         $('#send-error').text(over ? tooLong(S.current, v) : '');
@@ -1078,7 +1099,7 @@
 
     // Odešle text do konverzace, zobrazí dočasnou bublinu. Vrací jqXHR.
     function sendText(conv, text, resendOf) {
-        var p = { pending: true, dir: 'out', conv: conv, body: text, ts: new Date().toISOString(),
+        var p = { pending: true, dir: 'out', conv: conv, body: (resendOf ? '' : numberPrefix(conv)) + text, ts: new Date().toISOString(),
                   type: conv.charAt(0) === 'c' ? 'channel' : 'direct', status: 'sent', repeaters: 0 };
         S.pending.push(p);
         if (S.current === conv) {
@@ -1086,7 +1107,11 @@
             scrollBottom(true);
         }
         return api('send', { conv: conv, text: text, resend_of: resendOf || null }, 'POST')
-            .done(function () {
+            .done(function (r) {
+                if (r && r.number) { // další zpráva dostane další číslo
+                    S.settings.convs[conv] = $.extend({}, convSet(conv), { number_next: r.number + 1 });
+                    if (S.current === conv) { updateCount(); }
+                }
                 // zpráva dorazí přes poll; pojistka, kdyby událost nepřišla
                 setTimeout(function () { dropPending(p); }, 30000);
             })
@@ -1808,6 +1833,17 @@
                     '<button class="btn btn-outline-primary" type="button" id="cs-scope-save">Uložit</button></div>' +
                     '<datalist id="cs-scope-list">' + knownScopes().map(function (x) { return '<option value="' + esc(x) + '">'; }).join('') + '</datalist></div>' +
                     '<div class="small text-body-secondary mb-3">Záleží na velikosti písmen. Region musí znát repeatery v okolí, jinak zpráva nedojde nikam.</div>' : '') +
+                (c.kind === 'contact' && c.type !== 3 ?
+                    '<h6 class="mt-4">Číslování zpráv</h6>' +
+                    '<div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" role="switch" id="cs-number"' + (cs.number ? ' checked' : '') + '>' +
+                    '<label class="form-check-label" for="cs-number">Číslovat odesílané zprávy ([1], [2]…)</label></div>' +
+                    '<div class="d-flex flex-wrap align-items-center gap-2 mb-1' + (cs.number ? '' : ' d-none') + '" id="cs-number-box">' +
+                    '<label class="small text-body-secondary" for="cs-number-next">Další zpráva dostane číslo</label>' +
+                    '<div class="input-group input-group-sm w-auto"><input type="number" class="form-control" id="cs-number-next" min="1" max="99999" value="' + (cs.number_next || 1) + '" style="max-width:6.5rem">' +
+                    '<button class="btn btn-outline-primary" type="button" id="cs-number-save">Uložit</button>' +
+                    '<button class="btn btn-outline-secondary" type="button" id="cs-number-reset" title="Začít znovu od 1">Od 1</button></div></div>' +
+                    '<div class="small text-body-secondary mb-3">Když čísluje i protistrana, chat upozorní na její zprávy, které nedorazily (mezera v řadě). ' +
+                    '„Odeslat znovu“ pošle stejné číslo.</div>' : '') +
                 (c.kind === 'channel' ?
                     '<h6 class="mt-4">Kanál</h6><div class="small text-body-secondary mb-2">Slot ' + c.idx + ' v companionu.</div>' +
                     '<div class="d-flex flex-wrap gap-2"><button type="button" class="btn btn-sm btn-outline-secondary" id="cs-secret"><i class="bi bi-key me-1"></i>Zobrazit klíč pro sdílení</button>' +
@@ -1822,6 +1858,24 @@
                 });
             });
             $('#cs-clear').on('click', function () { clearConversation(conv); });
+            $('#cs-number').on('change', function () {
+                var on = this.checked;
+                $('#cs-number-box').toggleClass('d-none', !on);
+                saveConv(conv, { number: on ? 1 : 0 }).done(function () {
+                    toast(on ? 'Odesílané zprávy se budou číslovat' : 'Číslování vypnuto', 'secondary');
+                    if (S.current === conv) { updateCount(); renderMessages(); }
+                });
+            });
+            var saveNumber = function (n) {
+                saveConv(conv, { number_next: n }).done(function () {
+                    $('#cs-number-next').val(n);
+                    toast('Další zpráva dostane číslo [' + n + ']', 'secondary');
+                    if (S.current === conv) { updateCount(); }
+                });
+            };
+            $('#cs-number-save').on('click', function () { saveNumber(+$('#cs-number-next').val() || 1); });
+            $('#cs-number-next').on('keydown', function (e) { if (e.key === 'Enter') { saveNumber(+this.value || 1); } });
+            $('#cs-number-reset').on('click', function () { saveNumber(1); });
             var curScope = cs.scope || '';
             $('#cs-scope-mode').val(curScope === '' ? '' : curScope === '*' ? '*' : 'r');
             $('#cs-scope').val(curScope && curScope !== '*' ? curScope : '');

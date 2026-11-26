@@ -404,17 +404,23 @@ final class ServerApi
         if (strlen($text) > $limit) {
             throw new InvalidArgumentException('Zpráva má ' . strlen($text) . ' B, limit je ' . $limit . ' B.');
         }
+        // číslování DM („[12] text“) – ne u „odeslat znovu“ a u reakcí
+        $resendOf = (int) ($input['resend_of'] ?? 0);
+        [$text, $number] = $resendOf > 0 || !empty($input['raw']) ? [$text, null] : Settings::numbered($this->db, $conv, $text);
+        if (strlen($text) > $limit) {
+            throw new InvalidArgumentException('Zpráva má s číslem ' . strlen($text) . ' B, limit je ' . $limit . ' B.');
+        }
         [$t, $to] = explode(':', $conv, 2);
         // „odeslat znovu“ – připojit novou zprávu k původní (MessageStore::linkDuplicate)
-        $resendOf = (int) ($input['resend_of'] ?? 0);
         if ($resendOf > 0 && $this->db->value("SELECT id FROM messages WHERE id = ? AND conv_key = ? AND direction = 'out'", [$resendOf, $conv])) {
             $this->db->query('INSERT INTO worker_state (k, v) VALUES (?, ?) ON DUPLICATE KEY UPDATE v = VALUES(v), updated_at = CURRENT_TIMESTAMP(6)',
                 [MessageStore::resendKey($conv, $text), (string) $resendOf]);
         }
         $r = $this->srv->post('/messages', ['kind' => $t === 'c' ? 'channel' : 'dm', 'to' => $t === 'c' ? (int) $to : $to, 'text' => $text]);
         // zprávu uložit hned (worker ji dostane i přes WebSocket – podle srv_id se nezdvojí)
+        Settings::numberUsed($this->db, $conv, $number);
         $id = is_array($r['message'] ?? null) ? $this->sync()->upsertMessage($r['message']) : null;
-        return [['ok' => true, 'id' => $id], 200];
+        return [['ok' => true, 'id' => $id, 'number' => $number], 200];
     }
 
     /** Rychlá reakce na zprávu – odešle se jako text ve formátu MeshCore One (viz Reactions). */
@@ -422,7 +428,7 @@ final class ServerApi
     {
         $r = (new Reactions($this->db))->textFor((int) ($input['id'] ?? 0), (string) ($input['emoji'] ?? ''),
             (string) $this->api->selfName($this->cfg));
-        return $this->send(['conv' => $r['conv'], 'text' => $r['text']]);
+        return $this->send(['conv' => $r['conv'], 'text' => $r['text'], 'raw' => true]); // reakce se nečísluje
     }
 
     // ------------------------------------------------------------------ room servery a vzdálená správa

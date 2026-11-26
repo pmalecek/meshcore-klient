@@ -121,6 +121,8 @@ CREATE TABLE IF NOT EXISTS conv_settings (
     favorite    TINYINT(1)   NOT NULL DEFAULT 0,
     retention_days SMALLINT UNSIGNED NULL COMMENT 'NULL = výchozí, 0 = navždy, jinak počet dní',
     scope       VARCHAR(32)  NULL COMMENT 'Region pro odesílání: NULL = výchozí companionu, * = bez regionu, jinak název (bez #)',
+    number_out  TINYINT(1)   NOT NULL DEFAULT 0 COMMENT 'Číslovat odesílané zprávy (jen DM)',
+    number_next INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'Číslo další odeslané zprávy',
     updated_at  DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 

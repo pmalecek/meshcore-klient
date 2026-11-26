@@ -22,13 +22,15 @@ final class Settings
     public function all(): array
     {
         $convs = [];
-        foreach ($this->db->all('SELECT conv_key, color, background, favorite, retention_days, scope FROM conv_settings') as $r) {
+        foreach ($this->db->all('SELECT conv_key, color, background, favorite, retention_days, scope, number_out, number_next FROM conv_settings') as $r) {
             $convs[$r['conv_key']] = [
                 'color'     => $r['color'],
                 'bg'        => $r['background'] !== null ? json_decode($r['background'], true) : null,
                 'fav'       => (bool) $r['favorite'],
                 'retention' => $r['retention_days'] !== null ? (int) $r['retention_days'] : null,
                 'scope'     => $r['scope'],
+                'number'    => (bool) $r['number_out'],
+                'number_next' => (int) $r['number_next'],
             ];
         }
         $def = $this->db->value("SELECT v FROM app_settings WHERE k = 'default_bg'");
@@ -92,7 +94,23 @@ final class Settings
             $this->db->query('UPDATE conv_settings SET favorite = ? WHERE conv_key = ?', [$data['fav'] ? 1 : 0, $conv]);
         }
         // úklid prázdných záznamů
-        $this->db->query('DELETE FROM conv_settings WHERE conv_key = ? AND color IS NULL AND background IS NULL AND favorite = 0 AND retention_days IS NULL AND scope IS NULL', [$conv]);
+        if (array_key_exists('number', $data) || array_key_exists('number_next', $data)) {
+            if (!str_starts_with($conv, 'd:')) {
+                throw new InvalidArgumentException('Číslování zpráv jde zapnout jen u přímých zpráv');
+            }
+            if (array_key_exists('number', $data)) {
+                $this->db->query('UPDATE conv_settings SET number_out = ? WHERE conv_key = ?', [$data['number'] ? 1 : 0, $conv]);
+            }
+            if (array_key_exists('number_next', $data)) {
+                $n = filter_var($data['number_next'], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 99999]]);
+                if ($n === false) {
+                    throw new InvalidArgumentException('Číslo další zprávy musí být 1–99999');
+                }
+                $this->db->query('UPDATE conv_settings SET number_next = ? WHERE conv_key = ?', [$n, $conv]);
+            }
+        }
+        $this->db->query('DELETE FROM conv_settings WHERE conv_key = ? AND color IS NULL AND background IS NULL AND favorite = 0
+            AND retention_days IS NULL AND scope IS NULL AND number_out = 0 AND number_next = 1', [$conv]);
     }
 
     /**
@@ -116,6 +134,32 @@ final class Settings
     }
 
     /** Region pro odeslání do konverzace (hodnota parametru scope služby send_channel_message), null = neposílat. */
+    /**
+     * Číslování odesílaných DM: text s předponou „[n] “ a číslo n (null = vypnuto, „odeslat znovu“ text nemění).
+     * Číslo se zvýší až po úspěšném odeslání (numberUsed), aby protistrana neviděla díru v řadě.
+     * @return array{0:string, 1:?int}
+     */
+    public static function numbered(Db $db, string $conv, string $text): array
+    {
+        if (!str_starts_with($conv, 'd:')) {
+            return [$text, null];
+        }
+        $r = $db->one('SELECT number_out, number_next FROM conv_settings WHERE conv_key = ?', [$conv]);
+        if (!$r || !(int) $r['number_out']) {
+            return [$text, null];
+        }
+        $n = max(1, (int) $r['number_next']);
+        return ['[' . $n . '] ' . $text, $n];
+    }
+
+    /** Číslo $n bylo odesláno – další zpráva dostane n+1. */
+    public static function numberUsed(Db $db, string $conv, ?int $n): void
+    {
+        if ($n !== null) {
+            $db->query('UPDATE conv_settings SET number_next = GREATEST(number_next, ?) WHERE conv_key = ?', [$n + 1, $conv]);
+        }
+    }
+
     public static function scopeFor(Db $db, string $conv): ?string
     {
         $s = $db->value('SELECT scope FROM conv_settings WHERE conv_key = ?', [$conv]);

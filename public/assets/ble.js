@@ -690,6 +690,12 @@
         var conv = String(p.conv || ''), text = String(p.text || '').trim();
         if (!validConv(conv)) { throw err('Neplatná konverzace'); }
         if (!text) { throw err('Prázdná zpráva'); }
+        // číslování DM („[12] text“) – ne u „odeslat znovu“ a u reakcí
+        var cset = D.settings.convs[conv] || {}, number = null;
+        if (conv.charAt(0) === 'd' && cset.number && !p.resend_of && !p.raw) {
+            number = Math.max(1, +cset.number_next || 1);
+            text = '[' + number + '] ' + text;
+        }
         if (Array.from(text).length > MAX_LEN) { throw err('Zpráva je příliš dlouhá'); }
         var bytes = new TextEncoder().encode(text).length;
         var limit = conv.charAt(0) === 'c' ? 160 - new TextEncoder().encode(((D.self && D.self.name) || '') + ': ').length : 160;
@@ -713,6 +719,7 @@
             saveMsg(root);
         }
         saveMsg(m);
+        if (number !== null) { cset.number_next = number + 1; D.settings.convs[conv] = cset; saveSettings(); }
         (parts[0] === 'c' ? sendChannel(m, +parts[1]) : sendDirect(m, contact)).catch(function (e) {
             m.status = 'failed'; m.error = e.message || 'Odeslání selhalo';
             saveMsg(m);
@@ -1313,18 +1320,27 @@
         },
         'POST conv_settings': function (p) {
             if (!validConv(p.conv)) { throw err('Neplatná konverzace'); }
-            var cs = Object.assign({ color: null, bg: null, fav: false, retention: null, scope: null }, D.settings.convs[p.conv] || {});
+            var cs = Object.assign({ color: null, bg: null, fav: false, retention: null, scope: null, number: false, number_next: 1 }, D.settings.convs[p.conv] || {});
             if ('color' in p) { cs.color = p.color || null; }
             if ('bg' in p) { cs.bg = validBg(p.bg); }
             if ('fav' in p) { cs.fav = !!p.fav; }
             if ('scope' in p) {
-                if (p.conv.charAt(0) !== 'c') { throw err('Region jde nastavit jen u kanálu'); }
+
                 var sc = String(p.scope == null ? '' : p.scope).trim().replace(/^#/, '');
                 if (sc && sc !== '*' && !/^[\p{L}\p{N}_.\-]{1,30}$/u.test(sc)) { throw err('Neplatný název regionu (písmena, číslice, - _ .)'); }
                 cs.scope = sc || null;
             }
             if ('retention' in p) { cs.retention = p.retention === null || p.retention === '' ? null : Math.max(0, +p.retention); }
-            if (!cs.color && !cs.bg && !cs.fav && cs.retention == null && !cs.scope) { delete D.settings.convs[p.conv]; } else { D.settings.convs[p.conv] = cs; }
+            if ('number' in p || 'number_next' in p) {
+                if (p.conv.charAt(0) !== 'd') { throw err('Číslování zpráv jde zapnout jen u přímých zpráv'); }
+                if ('number' in p) { cs.number = !!p.number; }
+                if ('number_next' in p) {
+                    var nn = parseInt(p.number_next, 10);
+                    if (!(nn >= 1 && nn <= 99999)) { throw err('Číslo další zprávy musí být 1–99999'); }
+                    cs.number_next = nn;
+                }
+            }
+            if (!cs.color && !cs.bg && !cs.fav && cs.retention == null && !cs.scope && !cs.number && (cs.number_next || 1) === 1) { delete D.settings.convs[p.conv]; } else { D.settings.convs[p.conv] = cs; }
             saveSettings();
             if ('retention' in p) { cleanup(); }
             return { settings: settingsOut() };
